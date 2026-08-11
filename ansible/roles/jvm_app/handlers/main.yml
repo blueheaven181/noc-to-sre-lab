@@ -1,0 +1,5 @@
+---
+- name: restart game-service
+  ansible.builtin.systemd:
+    name: game-service
+    state: restarted

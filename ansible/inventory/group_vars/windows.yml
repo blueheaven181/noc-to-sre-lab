@@ -1,0 +1,10 @@
+---
+ansible_user: labadmin
+ansible_password: "{{ vault_windows_admin_password }}"
+ansible_connection: winrm
+ansible_winrm_transport: ntlm
+ansible_winrm_server_cert_validation: ignore   # self-signed cert from bootstrap-winrm.ps1
+ansible_port: 5986
+
+# Requires files/bootstrap-winrm.ps1 to have been run manually on the host first -
+# Ansible can't enable WinRM on a box it can't yet reach.

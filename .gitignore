@@ -1,0 +1,8 @@
+﻿*.tfstate
+*.tfstate.backup
+.terraform/
+*.tfvars
+vault.yml
+*.pem
+*.key
+.vscode/

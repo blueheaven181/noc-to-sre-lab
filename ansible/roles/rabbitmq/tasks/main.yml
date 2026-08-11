@@ -1,0 +1,56 @@
+---
+# NOTE: RabbitMQ isn't in RHEL's AppStream repos - it comes from RabbitMQ's own repo.
+# Check https://www.rabbitmq.com/docs/install-rpm for the current Erlang/RabbitMQ
+# version pins for RHEL 9 before running this in a fresh environment - versions
+# below are illustrative and should be confirmed at build time.
+
+- name: Add RabbitMQ official yum repo
+  ansible.builtin.yum_repository:
+    name: rabbitmq_server
+    description: RabbitMQ Server
+    baseurl: https://packagecloud.io/rabbitmq/rabbitmq-server/el/9/$basearch
+    gpgcheck: false
+
+- name: Install Erlang and RabbitMQ server
+  ansible.builtin.dnf:
+    name:
+      - erlang
+      - rabbitmq-server
+    state: present
+
+- name: Enable the management plugin (gives you the web UI + API)
+  ansible.builtin.command: rabbitmq-plugins enable rabbitmq_management
+  args:
+    creates: /etc/rabbitmq/enabled_plugins
+
+- name: Enable and start RabbitMQ
+  ansible.builtin.systemd:
+    name: rabbitmq-server
+    enabled: true
+    state: started
+
+- name: Create the application vhost
+  community.rabbitmq.rabbitmq_vhost:
+    name: /game
+    state: present
+
+- name: Create the application user, scoped to /game only
+  community.rabbitmq.rabbitmq_user:
+    user: gameapp
+    password: "{{ vault_rabbitmq_password }}"
+    vhost: /game
+    configure_priv: ".*"
+    write_priv: ".*"
+    read_priv: ".*"
+    state: present
+  no_log: true
+
+- name: Open firewalld for AMQP and the management UI
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - 5672/tcp
+    - 15672/tcp

@@ -1,0 +1,19 @@
+---
+collections:
+  - name: ansible.posix          # selinux, firewalld, seboolean modules
+    version: ">=1.5.0"
+  - name: community.general       # seport, timezone, misc modules
+    version: ">=8.0.0"
+  - name: community.mysql
+    version: ">=3.9.0"
+  - name: community.rabbitmq
+    version: ">=1.2.0"
+  - name: ansible.windows         # win_service, win_shell, etc.
+    version: ">=2.3.0"
+  - name: community.windows       # win_firewall_rule
+    version: ">=2.2.0"
+  - name: chocolatey.chocolatey   # win_chocolatey
+    version: ">=1.5.0"
+
+# Install with:
+#   ansible-galaxy collection install -r requirements.yml

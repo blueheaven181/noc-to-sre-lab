@@ -1,0 +1,32 @@
+---
+- name: Install Redis
+  ansible.builtin.dnf:
+    name: redis
+    state: present
+
+- name: Bind Redis to the lab network, not just localhost
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^bind '
+    line: "bind 127.0.0.1 {{ ansible_default_ipv4.address }}"
+  notify: restart redis
+
+- name: Require a password on Redis - never leave it open
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^# ?requirepass'
+    line: "requirepass {{ vault_redis_password }}"
+  notify: restart redis
+
+- name: Enable and start Redis
+  ansible.builtin.systemd:
+    name: redis
+    enabled: true
+    state: started
+
+- name: Open firewalld for Redis, restricted to the lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="6379" accept'
+    permanent: true
+    immediate: true
+    state: enabled

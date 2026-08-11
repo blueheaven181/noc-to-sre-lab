@@ -1,0 +1,45 @@
+---
+- name: Install MySQL server
+  ansible.builtin.dnf:
+    name:
+      - mysql-server
+      - python3-PyMySQL
+    state: present
+
+- name: Enable and start MySQL
+  ansible.builtin.systemd:
+    name: mysqld
+    enabled: true
+    state: started
+
+- name: Set MySQL root password (idempotent - only changes it once)
+  community.mysql.mysql_user:
+    name: root
+    password: "{{ vault_mysql_root_password }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
+    check_implicit_admin: true
+  no_log: true
+
+- name: Create the game application database
+  community.mysql.mysql_db:
+    name: gamedb
+    state: present
+    login_user: root
+    login_password: "{{ vault_mysql_root_password }}"
+
+- name: Create the application's DB user, scoped to gamedb only
+  community.mysql.mysql_user:
+    name: gameapp
+    password: "{{ vault_gameapp_db_password }}"
+    priv: "gamedb.*:ALL"
+    host: "%"
+    login_user: root
+    login_password: "{{ vault_mysql_root_password }}"
+  no_log: true
+
+- name: Open firewalld for MySQL, restricted to the lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="3306" accept'
+    permanent: true
+    immediate: true
+    state: enabled

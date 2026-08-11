@@ -1,0 +1,50 @@
+---
+# Run everything:   ansible-playbook site.yml --ask-vault-pass
+# Run one tier:     ansible-playbook site.yml --limit mysql_hosts --ask-vault-pass
+#
+# Prereqs before this playbook can do anything:
+#   1. Each RHEL host is already registered (subscription-manager register)
+#      and pinned to the target minor release (subscription-manager release --set=9.5)
+#   2. The Windows host has had files/bootstrap-winrm.ps1 run on it manually once
+#   3. inventory/group_vars/vault.yml exists with the vault_* secrets (ansible-vault create)
+
+- name: Baseline every RHEL host
+  hosts: linux_rhel
+  become: true
+  roles:
+    - common
+
+- name: Nginx reverse proxy / load balancer
+  hosts: nginx_hosts
+  become: true
+  roles:
+    - nginx
+
+- name: MySQL data tier
+  hosts: mysql_hosts
+  become: true
+  roles:
+    - mysql
+
+- name: Redis cache tier
+  hosts: redis_hosts
+  become: true
+  roles:
+    - redis
+
+- name: RabbitMQ messaging tier
+  hosts: rabbitmq_hosts
+  become: true
+  roles:
+    - rabbitmq
+
+- name: JVM game service
+  hosts: jvm_app_hosts
+  become: true
+  roles:
+    - jvm_app
+
+- name: Windows fleet
+  hosts: windows
+  roles:
+    - windows_common

@@ -1,0 +1,27 @@
+---
+- name: Install windows_exporter via Chocolatey
+  chocolatey.chocolatey.win_chocolatey:
+    name: windows-exporter
+    state: present
+
+- name: Ensure windows_exporter service is running
+  ansible.windows.win_service:
+    name: windows_exporter
+    start_mode: auto
+    state: started
+
+- name: Open firewall for windows_exporter (Prometheus scrape port)
+  community.windows.win_firewall_rule:
+    name: Allow Prometheus windows_exporter
+    localport: 9182
+    action: allow
+    direction: in
+    protocol: tcp
+    state: present
+    enabled: true
+
+- name: Ensure Windows Update service is running (patching visibility)
+  ansible.windows.win_service:
+    name: wuauserv
+    start_mode: auto
+    state: started

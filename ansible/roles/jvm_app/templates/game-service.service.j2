@@ -1,0 +1,15 @@
+[Unit]
+Description=Game Backend Service (v{{ app_version }})
+After=network.target
+
+[Service]
+User=gameapp
+Group=gameapp
+WorkingDirectory=/opt/game-service
+ExecStart=/usr/bin/java -jar /opt/game-service/game-service-current.jar --server.port=8080
+Restart=on-failure
+RestartSec=5
+Environment=SPRING_PROFILES_ACTIVE=lab
+
+[Install]
+WantedBy=multi-user.target

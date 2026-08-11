@@ -1,0 +1,85 @@
+---
+# Registration/release-pin happens manually before this playbook runs
+# (subscription-manager register, subscription-manager release --set=9.5).
+# Ansible picks up from there.
+
+- name: Install baseline packages
+  ansible.builtin.dnf:
+    name:
+      - chrony
+      - vim-enhanced
+      - curl
+      - firewalld
+      - policycoreutils-python-utils
+      - tar
+    state: present
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Ensure chronyd is running and enabled
+  ansible.builtin.service:
+    name: chronyd
+    state: started
+    enabled: true
+
+- name: Ensure firewalld is running and enabled
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  when: firewalld_enabled | bool
+
+- name: Confirm SELinux is enforcing (fail fast on drift, don't silently allow disabled)
+  ansible.posix.selinux:
+    state: "{{ selinux_state }}"
+    policy: targeted
+
+- name: Create dedicated node_exporter service account
+  ansible.builtin.user:
+    name: node_exporter
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Create /opt/monitoring
+  ansible.builtin.file:
+    path: /opt/monitoring
+    state: directory
+    mode: "0755"
+
+- name: Download node_exporter
+  ansible.builtin.unarchive:
+    src: https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
+    dest: /opt/monitoring
+    remote_src: true
+    creates: /opt/monitoring/node_exporter-1.8.2.linux-amd64
+
+- name: Symlink node_exporter binary
+  ansible.builtin.file:
+    src: /opt/monitoring/node_exporter-1.8.2.linux-amd64/node_exporter
+    dest: /usr/local/bin/node_exporter
+    state: link
+    owner: node_exporter
+
+- name: Install node_exporter systemd unit
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    mode: "0644"
+  notify: restart node_exporter
+
+- name: Enable and start node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Open firewalld port for node_exporter (Prometheus scrapes this)
+  ansible.posix.firewalld:
+    port: 9100/tcp
+    permanent: true
+    immediate: true
+    state: enabled

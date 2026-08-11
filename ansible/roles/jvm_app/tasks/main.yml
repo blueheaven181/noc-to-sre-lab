@@ -1,0 +1,70 @@
+---
+- name: Install OpenJDK 17
+  ansible.builtin.dnf:
+    name: java-17-openjdk-headless
+    state: present
+
+- name: Create dedicated service account
+  ansible.builtin.user:
+    name: gameapp
+    system: true
+    shell: /sbin/nologin
+    home: /opt/game-service
+    create_home: true
+
+- name: Ensure app directory exists
+  ansible.builtin.file:
+    path: /opt/game-service
+    state: directory
+    owner: gameapp
+    group: gameapp
+    mode: "0750"
+
+# The versioned jar lands in roles/jvm_app/files/ via your CI/CD pipeline
+# (built once at step 4 of the release pipeline, never rebuilt here - see the
+# release pipeline diagram from earlier).
+- name: Deploy the versioned application artifact
+  ansible.builtin.copy:
+    src: "files/game-service-{{ app_version }}.jar"
+    dest: "/opt/game-service/game-service-{{ app_version }}.jar"
+    owner: gameapp
+    group: gameapp
+    mode: "0750"
+  notify: restart game-service
+
+- name: Point the "current" symlink at this version (systemd runs this path)
+  ansible.builtin.file:
+    src: "/opt/game-service/game-service-{{ app_version }}.jar"
+    dest: /opt/game-service/game-service-current.jar
+    state: link
+    owner: gameapp
+    group: gameapp
+  notify: restart game-service
+
+- name: Install systemd unit
+  ansible.builtin.template:
+    src: game-service.service.j2
+    dest: /etc/systemd/system/game-service.service
+    mode: "0644"
+  notify: restart game-service
+
+- name: SELinux port context for the app port
+  community.general.seport:
+    ports: "8080"
+    proto: tcp
+    setype: http_port_t
+    state: present
+
+- name: Enable and start the service
+  ansible.builtin.systemd:
+    name: game-service
+    enabled: true
+    daemon_reload: true
+    state: started
+
+- name: Open firewalld for the app port, internal only (nginx talks to this, not the public)
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="8080" accept'
+    permanent: true
+    immediate: true
+    state: enabled
