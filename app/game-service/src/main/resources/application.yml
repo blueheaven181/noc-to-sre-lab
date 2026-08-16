@@ -1,0 +1,45 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: game-service
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql01}:3306/gamedb?useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USER:gameapp}
+    password: ${DB_PASSWORD:changeme}
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # lab convenience: auto-creates/updates the players table. Use migrations (Flyway/Liquibase) in real prod.
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis01}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq01}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:gameapp}
+    password: ${RABBITMQ_PASSWORD:changeme}
+    virtual-host: ${RABBITMQ_VHOST:/game}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.noclab.gameservice: INFO
