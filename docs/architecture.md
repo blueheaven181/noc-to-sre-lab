@@ -14,14 +14,14 @@ Grafana / Log Analytics) — the point of the lab is doing the plumbing by hand.
 
 | Host        | IP             | OS                  | Role                                   |
 |-------------|----------------|---------------------|-----------------------------------------|
-| controller01| 192.168.56.10  | RHEL 9.5            | Ansible control node, local connection  |
-| nginx01     | 192.168.56.11  | RHEL 9.5            | Reverse proxy / load balancer           |
-| mysql01     | 192.168.56.12  | RHEL 9.5            | MySQL — durable game data               |
-| redis01     | 192.168.56.13  | RHEL 9.5            | Redis — leaderboard cache               |
-| rabbitmq01  | 192.168.56.14  | RHEL 9.5            | RabbitMQ — async event bus              |
-| jvmapp01    | 192.168.56.15  | RHEL 9.5            | Spring Boot `game-service` instance A   |
-| jvmapp02    | 192.168.56.16  | RHEL 9.5            | Spring Boot `game-service` instance B   |
-| winsrv01    | 192.168.56.20  | Windows Server 2022 | **Unassigned** — see Open Decisions     |
+| controller01| 192.168.11.10  | RHEL 9.5            | Ansible control node, local connection  |
+| nginx01     | 192.168.11.11  | RHEL 9.5            | Reverse proxy / load balancer           |
+| mysql01     | 192.168.11.12  | RHEL 9.5            | MySQL — durable game data               |
+| redis01     | 192.168.11.13  | RHEL 9.5            | Redis — leaderboard cache               |
+| rabbitmq01  | 192.168.11.14  | RHEL 9.5            | RabbitMQ — async event bus              |
+| jvmapp01    | 192.168.11.15  | RHEL 9.5            | Spring Boot `game-service` instance A   |
+| jvmapp02    | 192.168.11.16  | RHEL 9.5            | Spring Boot `game-service` instance B   |
+| winsrv01    | 192.168.11.20  | Windows Server 2022 | **Unassigned** — see Open Decisions     |
 
 All static IPs, one purpose per box (deliberate — see `ansible/README.md`).
 

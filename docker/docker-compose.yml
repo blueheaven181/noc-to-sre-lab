@@ -1,5 +1,5 @@
 # Observability stack for the NOC-to-SRE lab — Prometheus + Grafana + ELK.
-# Runs on controller01 (192.168.56.10) — see docs/architecture.md "Phase 4"
+# Runs on controller01 (192.168.11.10) — see docs/architecture.md "Phase 4"
 # for why it lives here rather than on an app-tier box.
 #
 # Prereqs on controller01 before `docker compose up -d` works:

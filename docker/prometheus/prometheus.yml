@@ -18,53 +18,53 @@ scrape_configs:
   - job_name: node_exporter
     static_configs:
       - targets:
-          - 192.168.56.10:9100
+          - 192.168.11.10:9100
         labels: { host: controller01 }
       - targets:
-          - 192.168.56.11:9100
+          - 192.168.11.11:9100
         labels: { host: nginx01 }
       - targets:
-          - 192.168.56.12:9100
+          - 192.168.11.12:9100
         labels: { host: mysql01 }
       - targets:
-          - 192.168.56.13:9100
+          - 192.168.11.13:9100
         labels: { host: redis01 }
       - targets:
-          - 192.168.56.14:9100
+          - 192.168.11.14:9100
         labels: { host: rabbitmq01 }
       - targets:
-          - 192.168.56.15:9100
+          - 192.168.11.15:9100
         labels: { host: jvmapp01 }
       - targets:
-          - 192.168.56.16:9100
+          - 192.168.11.16:9100
         labels: { host: jvmapp02 }
 
   # --- windows_exporter: already deployed via ansible/roles/windows_common ---
   - job_name: windows_exporter
     static_configs:
       - targets:
-          - 192.168.56.20:9182
+          - 192.168.11.20:9182
         labels: { host: winsrv01 }
 
   # --- net-new: nginx-prometheus-exporter sidecar (not yet deployed) ---
   - job_name: nginx_exporter
     static_configs:
       - targets:
-          - 192.168.56.11:9113
+          - 192.168.11.11:9113
         labels: { host: nginx01 }
 
   # --- net-new: mysqld_exporter, needs a scoped 'exporter' MySQL user ---
   - job_name: mysqld_exporter
     static_configs:
       - targets:
-          - 192.168.56.12:9104
+          - 192.168.11.12:9104
         labels: { host: mysql01 }
 
   # --- net-new: redis_exporter ---
   - job_name: redis_exporter
     static_configs:
       - targets:
-          - 192.168.56.13:9121
+          - 192.168.11.13:9121
         labels: { host: redis01 }
 
   # --- net-new: RabbitMQ's built-in prometheus plugin
@@ -72,7 +72,7 @@ scrape_configs:
   - job_name: rabbitmq
     static_configs:
       - targets:
-          - 192.168.56.14:15692
+          - 192.168.11.14:15692
         labels: { host: rabbitmq01 }
 
   # --- net-new: game-service (Spring Boot Actuator + Micrometer) ---
@@ -80,8 +80,8 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets:
-          - 192.168.56.15:8080
+          - 192.168.11.15:8080
         labels: { host: jvmapp01 }
       - targets:
-          - 192.168.56.16:8080
+          - 192.168.11.16:8080
         labels: { host: jvmapp02 }
