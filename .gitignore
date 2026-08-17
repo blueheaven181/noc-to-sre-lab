@@ -6,3 +6,5 @@ vault.yml
 *.pem
 *.key
 .vscode/
+.env
+docker/.env

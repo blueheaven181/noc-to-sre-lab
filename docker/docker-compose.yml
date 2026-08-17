@@ -1,0 +1,115 @@
+# Observability stack for the NOC-to-SRE lab — Prometheus + Grafana + ELK.
+# Runs on controller01 (192.168.56.10) — see docs/architecture.md "Phase 4"
+# for why it lives here rather than on an app-tier box.
+#
+# Prereqs on controller01 before `docker compose up -d` works:
+#   - Docker CE + the compose plugin installed (RHEL 9.5 doesn't ship these in
+#     its own repos — add Docker's own .repo file first). Not yet an Ansible
+#     role; do this manually for now, same as the WinRM bootstrap step.
+#   - `sudo sysctl -w vm.max_map_count=262144` (Elasticsearch requirement;
+#     needs to be persisted in /etc/sysctl.d/, not just set for this boot)
+#   - firewalld rules for 9090/3000/5601 scoped to the lab subnet — not yet
+#     automated, see docs/architecture.md "Firewall / security"
+#
+# xpack.security is deliberately OFF on the Elastic stack here — this is a
+# single-node lab behind firewalld, not a production cluster. Don't copy this
+# setting if this stack ever needs to be reachable outside the lab subnet.
+
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION}
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,Z
+      # Dashboard JSON lives at repo root in dashboards/, checked into git —
+      # not built by hand in the UI. See docs/architecture.md "Dashboards".
+      - ../dashboards:/var/lib/grafana/dashboards:ro,Z
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - elasticsearch
+    networks:
+      - observability
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS}
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION}
+    container_name: logstash
+    restart: unless-stopped
+    environment:
+      LS_JAVA_OPTS: ${LS_JAVA_OPTS}
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro,Z
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro,Z
+    ports:
+      - "5044:5044" # Filebeat/Winlogbeat input — hosts ship logs here once beats are deployed (next Ansible pass)
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${KIBANA_VERSION}
+    container_name: kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+networks:
+  observability:
+    name: observability
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  es_data:

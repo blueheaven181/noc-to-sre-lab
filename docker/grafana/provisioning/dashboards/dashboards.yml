@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: noc-to-sre-lab
+    orgId: 1
+    folder: "NOC-to-SRE Lab"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      # Mounted from ../dashboards (repo root) in docker-compose.yml — dashboard
+      # JSON lives there, checked into git. Empty for now; populated as each
+      # tier's dashboard is built (see docs/architecture.md "Dashboards").
+      path: /var/lib/grafana/dashboards

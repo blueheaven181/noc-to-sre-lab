@@ -1,0 +1,87 @@
+# Scrape targets match the inventory in ansible/inventory/hosts.yml and the
+# exporter table in docs/architecture.md. Targets marked "net-new" will show
+# as DOWN in Prometheus until their exporter is actually deployed — that's
+# expected, not a config bug. Confirm each target UP before wiring up Grafana
+# dashboards for it (see architecture.md "Rollout order", step 4).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # --- node_exporter: already deployed via ansible/roles/common on every
+  #     RHEL host (including controller01 itself) ---
+  - job_name: node_exporter
+    static_configs:
+      - targets:
+          - 192.168.56.10:9100
+        labels: { host: controller01 }
+      - targets:
+          - 192.168.56.11:9100
+        labels: { host: nginx01 }
+      - targets:
+          - 192.168.56.12:9100
+        labels: { host: mysql01 }
+      - targets:
+          - 192.168.56.13:9100
+        labels: { host: redis01 }
+      - targets:
+          - 192.168.56.14:9100
+        labels: { host: rabbitmq01 }
+      - targets:
+          - 192.168.56.15:9100
+        labels: { host: jvmapp01 }
+      - targets:
+          - 192.168.56.16:9100
+        labels: { host: jvmapp02 }
+
+  # --- windows_exporter: already deployed via ansible/roles/windows_common ---
+  - job_name: windows_exporter
+    static_configs:
+      - targets:
+          - 192.168.56.20:9182
+        labels: { host: winsrv01 }
+
+  # --- net-new: nginx-prometheus-exporter sidecar (not yet deployed) ---
+  - job_name: nginx_exporter
+    static_configs:
+      - targets:
+          - 192.168.56.11:9113
+        labels: { host: nginx01 }
+
+  # --- net-new: mysqld_exporter, needs a scoped 'exporter' MySQL user ---
+  - job_name: mysqld_exporter
+    static_configs:
+      - targets:
+          - 192.168.56.12:9104
+        labels: { host: mysql01 }
+
+  # --- net-new: redis_exporter ---
+  - job_name: redis_exporter
+    static_configs:
+      - targets:
+          - 192.168.56.13:9121
+        labels: { host: redis01 }
+
+  # --- net-new: RabbitMQ's built-in prometheus plugin
+  #     (rabbitmq-plugins enable rabbitmq_prometheus) ---
+  - job_name: rabbitmq
+    static_configs:
+      - targets:
+          - 192.168.56.14:15692
+        labels: { host: rabbitmq01 }
+
+  # --- net-new: game-service (Spring Boot Actuator + Micrometer) ---
+  - job_name: game_service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - 192.168.56.15:8080
+        labels: { host: jvmapp01 }
+      - targets:
+          - 192.168.56.16:8080
+        labels: { host: jvmapp02 }
