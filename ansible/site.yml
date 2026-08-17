@@ -1,50 +1,74 @@
 ---
 # Run everything:   ansible-playbook site.yml --ask-vault-pass
 # Run one tier:     ansible-playbook site.yml --limit mysql_hosts --ask-vault-pass
+# Run one tag:      ansible-playbook site.yml --tags common --ask-vault-pass
 #
 # Prereqs before this playbook can do anything:
 #   1. Each RHEL host is already registered (subscription-manager register)
 #      and pinned to the target minor release (subscription-manager release --set=9.5)
 #   2. The Windows host has had files/bootstrap-winrm.ps1 run on it manually once
 #   3. inventory/group_vars/vault.yml exists with the vault_* secrets (ansible-vault create)
+#
+# IMPORTANT — as of 2026-08-17: none of these roles have ever actually been run
+# against the live fleet. Every host was built by hand over SSH (see docs/journal/).
+# The mysql/redis/rabbitmq roles set credentials from the vault file, which may no
+# longer match what's actually live (e.g. the MySQL password recovered by hand in
+# Session 3) — running those tiers unreviewed risks resetting a password out from
+# under the currently-working app. Start with `--tags common` only (installs
+# node_exporter, safe, no app-tier state touched), and treat the tier-specific
+# tags as a deliberate, reviewed decision each time, not a routine re-run.
 
 - name: Baseline every RHEL host
   hosts: linux_rhel
   become: true
+  tags:
+    - common
   roles:
     - common
 
 - name: Nginx reverse proxy / load balancer
   hosts: nginx_hosts
   become: true
+  tags:
+    - nginx
   roles:
     - nginx
 
 - name: MySQL data tier
   hosts: mysql_hosts
   become: true
+  tags:
+    - mysql
   roles:
     - mysql
 
 - name: Redis cache tier
   hosts: redis_hosts
   become: true
+  tags:
+    - redis
   roles:
     - redis
 
 - name: RabbitMQ messaging tier
   hosts: rabbitmq_hosts
   become: true
+  tags:
+    - rabbitmq
   roles:
     - rabbitmq
 
 - name: JVM game service
   hosts: jvm_app_hosts
   become: true
+  tags:
+    - jvm_app
   roles:
     - jvm_app
 
 - name: Windows fleet
   hosts: windows
+  tags:
+    - windows_common
   roles:
     - windows_common

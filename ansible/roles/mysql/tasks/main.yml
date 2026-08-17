@@ -39,7 +39,7 @@
 
 - name: Open firewalld for MySQL, restricted to the lab subnet only
   ansible.posix.firewalld:
-    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="3306" accept'
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="3306" accept'
     permanent: true
     immediate: true
     state: enabled

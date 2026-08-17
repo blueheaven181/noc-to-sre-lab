@@ -64,7 +64,7 @@
 
 - name: Open firewalld for the app port, internal only (nginx talks to this, not the public)
   ansible.posix.firewalld:
-    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="8080" accept'
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="8080" accept'
     permanent: true
     immediate: true
     state: enabled

@@ -14,7 +14,7 @@
 - name: Require a password on Redis - never leave it open
   ansible.builtin.lineinfile:
     path: /etc/redis/redis.conf
-    regexp: '^# ?requirepass'
+    regexp: '^#?\s*requirepass\b'
     line: "requirepass {{ vault_redis_password }}"
   notify: restart redis
 
@@ -26,7 +26,7 @@
 
 - name: Open firewalld for Redis, restricted to the lab subnet only
   ansible.posix.firewalld:
-    rich_rule: 'rule family="ipv4" source address="192.168.56.0/24" port protocol="tcp" port="6379" accept'
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="6379" accept'
     permanent: true
     immediate: true
     state: enabled
