@@ -57,7 +57,7 @@ what those dashboards are showing and explains *why* something broke.
 | rabbitmq01  | 192.168.11.14  | RHEL 9.5            | RabbitMQ — async event bus              |
 | jvmapp01    | 192.168.11.15  | RHEL 9.5            | Spring Boot `game-service` instance A   |
 | jvmapp02    | 192.168.11.16  | RHEL 9.5            | Spring Boot `game-service` instance B   |
-| winsrv01    | 192.168.11.20  | Windows Server 2022 | CI/CD build agent (decided 2026-08-19)  |
+| winsrv01    | 192.168.11.20  | Windows Server 2022 | CI/CD build agent (live 2026-08-20)     |
 
 All static IPs, one purpose per box (deliberate — see `ansible/README.md`).
 
@@ -128,9 +128,10 @@ as observability work):
   - all RHEL hosts: `journald` (systemd unit failures, SELinux denials —
     directly useful given how much of Phases 1–3's pain was permission/SELinux
     related)
-- **Winlogbeat** on `winsrv01` → same Logstash pipeline, once the CI/CD build
-  agent workload (see "winsrv01's workload" above) is actually running and
-  generating meaningful logs — build history, runner service events, etc.
+- **Winlogbeat** on `winsrv01` → same Logstash pipeline. Unblocked as of
+  2026-08-20 — the CI/CD build agent workload (see "winsrv01's workload"
+  below) is live and generating real logs (runner service events, build
+  history) — not yet wired up, but no longer blocked on anything.
 
 ### Dashboards — Grafana
 
@@ -176,30 +177,31 @@ blocking prerequisite for the last two. Spring Boot Actuator/Micrometer for
 rebuild like Session 3's deploy), not an Ansible role — tracked separately,
 not started yet.
 
-### winsrv01's workload — resolved 2026-08-19: CI/CD build agent
+### winsrv01's workload — live as of 2026-08-20: CI/CD build agent
 
-winsrv01 becomes a self-hosted GitHub Actions runner, building `game-service`
-as part of the CI/CD pipeline (already flagged as the project's "next up"
-after Phase 4) — replacing the manual `scp` + `mvn` build done by hand back
-in Session 3. Rough shape, not yet built:
+winsrv01 is a self-hosted GitHub Actions runner, building `game-service` as
+part of a real CI pipeline — replacing the manual `scp` + `mvn` build done by
+hand back in Session 3.
 
-1. Register winsrv01 as a self-hosted Actions runner for the repo (needs
-   Java 17 + Maven installed, same as jvmapp01/02 needed for the original
-   manual build).
-2. A GitHub Actions workflow (`.github/workflows/`) triggers on push to
-   `app/`, builds the versioned jar on winsrv01, and places it where
-   `ansible/roles/jvm_app/tasks/main.yml`'s `Deploy the versioned application
-   artifact` task expects it — `roles/jvm_app/files/game-service-{{
-   app_version }}.jar` — which closes a real gap: that file doesn't exist
-   today, so the `jvm_app` role's copy task would fail if it were ever run.
-3. Optionally, the workflow triggers `ansible-playbook site.yml --tags
-   jvm_app` afterward for actual deployment — real CI/CD, not just CI.
-4. Once winsrv01 has a real recurring workload, Winlogbeat becomes worth
-   wiring up (its own systemd/service logs, build failures, etc.) — this was
-   the reason Winlogbeat was blocked in the first place.
-
-Not started yet — this is its own chunk of work, tracked here so the
-decision itself doesn't get lost before it's picked up.
+1. **Done.** winsrv01 registered as a self-hosted Actions runner for the repo
+   (Java 17 + Maven installed directly, since `winget` isn't available on
+   Windows Server 2022 by default — see the 2026-08-19/20 journal addendum).
+   Runs as a Windows service, survives reboots without a logged-in session.
+2. **Done.** `.github/workflows/build-game-service.yml` triggers on push to
+   `app/game-service/**` (plus manual `workflow_dispatch`), builds the
+   versioned jar on winsrv01, and commits it to
+   `roles/jvm_app/files/game-service-{{ app_version }}.jar` — closing the gap
+   that file's absence would have caused if the `jvm_app` role's copy task
+   were ever run. **First real run confirmed green end-to-end** — jar landed
+   in the repo at 61,204,407 bytes, verified via `git pull` on `controller01`.
+3. **Deliberately not automated yet.** Triggering
+   `ansible-playbook site.yml --tags jvm_app` after a successful build stays
+   a manual step — wiring that in means putting SSH secrets into GitHub
+   Actions, a call worth making on purpose later rather than defaulting into
+   during this pass.
+4. **Now unblocked, not yet done.** winsrv01 has a real recurring workload
+   (the runner service itself, every build it runs), so Winlogbeat is worth
+   wiring up next — see the Logs — ELK section above.
 
 ### Open decisions (need a call before/alongside implementation)
 
@@ -242,9 +244,11 @@ working end-to-end — that's the natural point to scope it for real.
 
 ## Next up
 
-Immediate: finish Phase 4 (net-new exporters, Grafana dashboards, ELK log
-shipping). After that: CI/CD pipeline (GitHub Actions building the versioned
-jar automatically instead of manual `scp`), the chaos/postmortem phase (needs
-observability to actually be useful — can't write a postmortem about a
-failure you couldn't see), and then Phase 5 above once there's real data to
-build the AI/RCA layer against.
+CI/CD is live (GitHub Actions on a self-hosted winsrv01 runner, builds
+`game-service` and commits the jar back automatically — see "winsrv01's
+workload" above). Immediate remaining work: Spring Boot Actuator/Micrometer
+on `game-service` (dependency not added yet), Grafana dashboards, and
+Winlogbeat on winsrv01 (now unblocked). After that: the chaos/postmortem
+phase (needs observability to actually be useful — can't write a postmortem
+about a failure you couldn't see), and then Phase 5 above once there's real
+data to build the AI/RCA layer against.

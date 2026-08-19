@@ -232,10 +232,127 @@ it, added that as a conditional task within the same role, scoped to `controller
   and *before* the exporter/filebeat work turned out to be the right order — every later piece
   went faster specifically because the infrastructure underneath it was actually stable by then.
 
+## Fourth late addendum — 2026-08-19/20: an actual power outage, full-fleet recovery, and winsrv01's CI/CD runner goes live
+
+Fell asleep mid-setup and the power went out — a genuinely unclean shutdown this time, not the
+deliberate emergency shutdown from the disk-full scare earlier in this same saga. Every VM and
+the host PC itself lost power with zero chance to flush anything to disk, which made this a real
+test of whether the fleet would come back clean.
+
+**Recovery, done deliberately rather than just powering everything back on and hoping:**
+
+- Checked host disk free space first, before touching VMware at all, given the disk-full
+  incident earlier this week — came back clean, not the same problem recurring.
+- Brought VMs up **one at a time**, starting with `controller01`, and ran the same three checks
+  on every single host rather than trusting a green "running" icon: `df -h`, `journalctl -p err
+  -b --no-pager`, and a service-specific status check (`mysqld`, `redis`, `rabbitmq-server`,
+  `nginx`, `game-service`, plus each host's Prometheus exporter).
+- **Result: all 7 RHEL hosts came back completely clean.** No XFS journal-replay failures, no
+  emergency-mode boots, no corrupted data. A few benign, worth-remembering findings along the
+  way, none of which needed a fix:
+  - Every host's root filesystem shows as `/dev/mapper/rhel_nginx01-root` regardless of actual
+    hostname — cosmetic leftover from cloning all 7 RHEL VMs from a shared template; RHEL's
+    installer bakes the LVM volume group name in at install time and cloning never renames it.
+  - `controller01` logged one `firewalld ERROR: NAME_CONFLICT: new_policy_object():
+    'docker-forwarding'` on boot — a known Docker/firewalld interaction after a restart.
+    Verified harmless rather than assumed: all 5 containers (`logstash`, `kibana`, `grafana`,
+    `prometheus`, `elasticsearch`) came up `Up`/`healthy`, Prometheus's `/-/healthy` returned
+    `200`, Elasticsearch's root endpoint responded normally.
+  - `mysql01`'s MySQL reported `"Server is operational"` on start (InnoDB's own signal that
+    crash recovery completed with no issues) and `redis01`'s Redis reloaded its persisted data
+    correctly (`dbsize` came back `1`, not `0` — confirms it actually loaded from disk rather
+    than starting fresh empty).
+  - `jvmapp01`/`jvmapp02` both logged a benign `rsyslogd: imjournal ... state file failed /
+    ignoring invalid state file` — rsyslog's own bookmark file (tracking how far it's read into
+    the systemd journal) got corrupted by the power loss, so rsyslog just discards it and
+    resumes from wherever the journal currently is. No data lost from a monitoring standpoint
+    either way, since filebeat reads journald directly, not through rsyslog.
+  - `redis_exporter` logged one `LOGGED ONCE ONLY` error trying `LATENCY HISTOGRAM`, a Redis
+    subcommand this Redis version doesn't support — the exporter notices, logs it exactly once,
+    and moves on; doesn't affect any real metric being scraped.
+- `game-service` on both jvmapp hosts reconnected to RabbitMQ on its own after restart, actuator
+  registered, node_exporter serving — no manual intervention needed anywhere in the app tier.
+
+**winsrv01 — the one host that actually needed real work, since it was mid-setup when the
+outage hit:**
+
+- Confirmed `hostname` first before touching anything, per the standing habit from the earlier
+  host-PC-vs-VM mix-up.
+- `winget` turned out to not exist on this box at all — Windows Server 2022 doesn't ship the
+  Microsoft Store / App Installer package the way client Windows does, so any Windows Server
+  automation needs a direct-download fallback rather than assuming `winget` is available.
+  Pivoted to downloading Temurin 17 directly from Adoptium's versionless "latest" API
+  (`api.adoptium.net/v3/installer/latest/17/ga/windows/x64/jdk/hotspot/normal/eclipse`) and
+  Maven 3.9.16 directly from `dlcdn.apache.org` as a zip.
+- Real gotcha: ran both installs, then immediately tried `java -version`/`mvn -version` in the
+  *same* PowerShell window — both came back "not recognized." Neither an MSI's environment-
+  variable registration nor a `[Environment]::SetEnvironmentVariable(...,"Machine")` call
+  applies to an already-running process, only to new ones spawned afterward. A fresh PowerShell
+  window fixed `mvn` immediately (Maven's own launcher resolves Java via the `JAVA_HOME`
+  variable, not by searching `PATH`), but `java` itself was still missing — the Temurin MSI's
+  `FeatureEnvironment` option set `JAVA_HOME` correctly but didn't actually add java's own `bin`
+  folder to the machine `PATH`. Fixed by appending it by hand.
+- Registered winsrv01 as a self-hosted GitHub Actions runner. One real stumble along the way:
+  went to the personal GitHub account Settings page (Payment info / Emails / SSH keys) looking
+  for "Actions," which doesn't exist there — that only lives inside a specific *repository's*
+  Settings, a visually near-identical but functionally separate page. The registration itself,
+  once on the right page, installed cleanly as a Windows service in one step via `config.cmd`'s
+  own interactive "run the runner as a service?" prompt (answered `Y`) — a separate `svc.cmd
+  install`/`start` fallback wasn't actually needed and threw a harmless "not recognized" error
+  when tried afterward, since the service already existed by then.
+- Wrote `.github/workflows/build-game-service.yml`: triggers on push to `app/game-service/**`
+  (plus a manual `workflow_dispatch` button for on-demand runs), builds with Maven on the
+  self-hosted runner, copies the resulting jar to
+  `ansible/roles/jvm_app/files/game-service-{{ app_version }}.jar`, and commits it straight back
+  to the repo under the workflow's own `github-actions[bot]` identity. Deliberately scoped the
+  trigger path so the commit-back can't retrigger itself — the jar lands under
+  `ansible/roles/jvm_app/files/`, a path outside the `app/game-service/**` filter.
+- One tooling note worth remembering: the device bridge used throughout this project to write
+  files directly into the repo folder refused to write into `.github/workflows/` at all,
+  returning "protected file" — a deliberate safety restriction, since workflow files control CI
+  execution and secrets and shouldn't be silently writable by a remote automation tool. Worked
+  around it by hand-pasting the workflow content into a PowerShell here-string directly on the
+  machine instead.
+- **First manual trigger via `workflow_dispatch` went green end-to-end on the very first
+  attempt** — the runner picked up the job within seconds, Maven built successfully (slower
+  than future runs will be, since there's no `.m2` dependency cache yet), and the jar committed
+  back automatically. Confirmed for real, not just trusted the green checkmark: pulled on
+  `controller01` and found `game-service-1.0.0.jar` (61,204,407 bytes) sitting exactly where
+  `ansible/roles/jvm_app/tasks/main.yml`'s deploy task expects it — the exact gap Session 3
+  flagged as missing, closed for real.
+
+This is the first time this repo has gone from "push code" to "deployable artifact" without a
+manual `scp`/build step. Deploying that jar out to jvmapp01/jvmapp02
+(`ansible-playbook site.yml --tags jvm_app --ask-vault-pass`) is still a deliberate manual step,
+not auto-triggered — wiring that in would mean putting SSH secrets into GitHub Actions, a call
+worth making on purpose later rather than defaulting into tonight.
+
+## Takeaways (round four)
+
+- An unplanned outage turned out to be a better resilience test than the earlier deliberate
+  shutdown — every host came back with zero data loss or corruption, a genuinely good signal
+  that the systemd units and storage config across the fleet are sound, not just "it worked
+  because we were careful."
+- Checking every host the same systematic way (`df -h`, `journalctl -p err`, service status)
+  instead of eyeballing a "running" icon caught nothing broken this time — but that's exactly
+  the discipline that *would* catch it if something had actually gone wrong, same principle as
+  verifying credentials manually before trusting them to the vault two nights ago.
+- Two tools that both "need Java" can behave completely differently after the identical install,
+  depending on whether they search `PATH` or read a specific environment variable — worth
+  internalizing as a general debugging instinct, not just a one-off Maven/Java quirk.
+- Account-level and repository-level Settings pages on GitHub share near-identical visual chrome
+  — the URL itself (`github.com/settings/...` vs. `github.com/<owner>/<repo>/settings`) is the
+  fastest way to tell which one you're actually looking at.
+
 ## Next up
 
-Filebeat is done — all 7 RHEL hosts confirmed. Remaining real work: Spring Boot
-Actuator/Micrometer on `game-service` (app-code work, not an Ansible role — needs a rebuild
-like Session 3's deploy) and Winlogbeat on `winsrv01` (blocked on winsrv01 having an actual
-workload — still open, unresolved since Phase 3). Once those two land, Phase 4 is functionally
-complete and Phase 5 (the AI-driven RCA goal added earlier tonight) becomes buildable for real.
+CI/CD is live and proven end-to-end — `game-service` now builds and lands a fresh jar
+automatically on every push (or manual trigger), closing the Session 3 gap for good. Remaining
+real work: Spring Boot Actuator/Micrometer on `game-service` (still not started — `pom.xml`
+already has `spring-boot-starter-actuator` but not `micrometer-registry-prometheus`), and
+Winlogbeat on `winsrv01` — **now actually unblocked**, since winsrv01 finally has a real
+recurring workload (the runner service itself, plus every build it runs) generating logs worth
+shipping. Deploying the freshly built jar to jvmapp01/jvmapp02 via
+`ansible-playbook site.yml --tags jvm_app --ask-vault-pass` is a pending manual step whenever
+convenient. Once Actuator + Winlogbeat land, Phase 4 is functionally complete and Phase 5 (the
+AI-driven RCA goal) becomes buildable for real.
