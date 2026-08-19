@@ -117,15 +117,90 @@ off (left off deliberately after the disk-space scare) — `common`-role converg
 them was already confirmed before the shutdown, so no re-work needed there, just a careful
 power-on.
 
+## Late addendum — same night: nginx_exporter and rabbitmq_exporter deployed
+
+Rather than one `monitoring_agents` role, wrote four separate net-new exporter roles
+(`nginx_exporter`, `rabbitmq_exporter`, `redis_exporter`, `mysqld_exporter`) so the two with
+zero credential dependency could run immediately without waiting on the vault problem below.
+Also added a new project goal to `architecture.md`: an AI-driven observability / automated
+root-cause-analysis layer, tracked as an unscoped future Phase 5.
+
+- **`nginx_exporter`** (nginx01) and **`rabbitmq_exporter`** (rabbitmq01) run clean —
+  `ansible-playbook site.yml --tags nginx_exporter,rabbitmq_exporter`. nginx01 converged on
+  the first pass (`ok=10 changed=7`); rabbitmq01 needed a rerun scoped with `--limit
+  rabbitmq01` since it was still mid-boot on the first pass (`UNREACHABLE`, not a real
+  failure — same "still booting" shape as the winsrv01 blank-screen scare earlier tonight).
+  Both `nginx_exporter` and `rabbitmq` jobs confirmed `UP` on Prometheus.
+- **`redis_exporter`** and **`mysqld_exporter`** are written but intentionally blocked —
+  both need real secrets that don't exist anywhere in the repo yet
+  (`inventory/group_vars/vault.yml` still doesn't exist). Deliberately deferred creating that
+  file until a less exhausted session, given it's the kind of task where a mistake with a real
+  credential matters more than most, and this session ran well past 4am local time.
+- Attempted to run `git add`/`git commit` for this batch from the cloud side via the device
+  bridge's sandboxed shell — `git add` worked, but `git commit` hit two sandbox-specific
+  issues worth remembering: stale `.git/index.lock` files that couldn't be deleted (worked
+  around with `mv` instead of `rm`, since rename succeeded where unlink didn't), and no git
+  author identity configured in that isolated environment. Ended up staging from the sandbox
+  but committing from the normal terminal, where identity was already set up correctly.
+
+## Second late addendum — same night: vault created, all six exporters live
+
+Turned out to still be on-shift and awake well past 4am, so kept going rather than stopping —
+verified the real MySQL root and Redis passwords manually first (`mysql -u root -p` + `STATUS;`,
+`redis-cli` + `AUTH`) before trusting them to the vault, per the "don't guess, verify" instinct
+from earlier sessions.
+
+- **`inventory/group_vars/vault.yml` doesn't work — found and fixed a real bug in the original
+  repo scaffolding.** Ansible's `group_vars` auto-loading only recognizes files/directories
+  named after an actual inventory group (`all`, `linux_rhel`, etc.). A file just named
+  `vault.yml` sitting directly in `group_vars/` is silently never loaded as variables at all —
+  `--ask-vault-pass` still prompts for a password (it prompts off the CLI flag, not off whether
+  anything actually needs decrypting), which produced a genuinely confusing `'vault_*' is
+  undefined` error even with the correct vault password entered. This was a bug in the
+  project's own scaffolding from before any of this session's work, not something introduced
+  tonight. Fixed by converting `group_vars/all.yml` into a directory
+  (`group_vars/all/vars.yml` + `group_vars/all/vault.yml`), which is the correct Ansible
+  pattern for "plaintext vars + secrets, merged for the same group."
+- **`mysqld_exporter` still failed after the vault fix** — `ok=10 changed=7`, service installed,
+  but `systemctl status` showed a crash-loop. `journalctl -u mysqld_exporter -n 50 --no-pager`
+  (not the paged `-xeu` form, which buried the real line) showed the actual cause:
+  `level=error msg="failed to validate config" section=client err="no user specified in section
+  or parent"`. mysqld_exporter v0.15.1 doesn't reliably honor the `DATA_SOURCE_NAME`
+  environment variable the role originally used — it expects a `.my.cnf`-style file passed via
+  `--config.my-cnf`. Fixed by writing `/etc/mysqld_exporter/.my.cnf` (mode 0600, owned by the
+  `mysqld_exporter` service account) and pointing `--config.my-cnf` at it instead.
+- Also found `python3-PyMySQL` was missing on mysql01 entirely — it was only ever meant to be
+  installed by the original (never-run) `mysql` role. Added it as an explicit prerequisite
+  inside `mysqld_exporter`'s own tasks so the role doesn't silently depend on a different,
+  still-untested role having run first.
+- `redis_exporter` worked cleanly on the first real attempt once the vault was fixed
+  (`ok=9 changed=7`, no follow-up bugs) — its environment-variable-based config approach just
+  works, unlike mysqld_exporter's.
+- **All six exporters confirmed `UP` on Prometheus by the end of the night**: `node_exporter`,
+  `windows_exporter`, `nginx_exporter`, `rabbitmq`, `mysqld_exporter`, `redis_exporter`.
+
+## Takeaways (round two)
+
+- Two more real bugs found and fixed tonight, both in *scaffolding written before this session
+  even started* (the `group_vars/vault.yml` path, the `DATA_SOURCE_NAME` assumption) — further
+  confirms the pattern from earlier: actually running automation against a live system surfaces
+  drift and mistakes that just reading the code never would. Every one of tonight's "blockers"
+  turned into a small, permanent improvement to the repo.
+- `journalctl -xeu` and `journalctl -u ... --no-pager` are not equivalent for debugging — the
+  paged/highlighted `-xeu` view can visually bury the one line that actually matters (the
+  `level=error` from the application itself) under systemd's own restart-loop noise. When a
+  service crash-loops, go straight to the plain, unpaged form and read every line.
+- Verifying credentials independently (manual `mysql -u root -p`, manual `redis-cli AUTH`)
+  *before* writing them into a vault file caught nothing wrong this time, but was worth doing
+  anyway — the cost of checking is a two-minute CLI login, the cost of not checking is a wrong
+  password baked into an encrypted file that's a pain to safely re-open and fix later.
+
 ## Next up
 
-Free up more host disk headroom before bringing the rest of the fleet back up, to avoid
-immediately recreating tonight's situation. Power the remaining 6 RHEL hosts back on
-deliberately, not all at once. Then: write the `monitoring_agents` Ansible role (or extend the
-existing per-service roles) for the net-new exporters — `nginx-prometheus-exporter`,
-`mysqld_exporter`, `redis_exporter`, RabbitMQ's built-in `rabbitmq_prometheus` plugin, and
-Spring Boot Actuator/Micrometer on `game-service` — plus Filebeat/Winlogbeat for the ELK side.
-Still open: `winsrv01`'s actual workload (unresolved since Phase 3), and reconciling the
-`vault_mysql_root_password` / `vault_gameapp_db_password` / `vault_rabbitmq_password` /
-`vault_redis_password` variables against what's actually live before ever running the
-`mysql`/`redis`/`rabbitmq` role tags — no vault file exists yet.
+Six RHEL hosts are still gradually coming back online post-crisis (jvmapp01, jvmapp02 still
+off as of this entry) — bring the rest up deliberately, not all at once, watching host
+disk/memory headroom. Remaining Phase 4 work: Spring Boot Actuator/Micrometer on `game-service`
+(app-code work, not an Ansible role — needs a rebuild like Session 3's deploy) and
+Filebeat/Winlogbeat for the ELK log-shipping side. Still open: `winsrv01`'s actual workload
+(unresolved since Phase 3). Once logs are flowing too, Phase 4 is functionally complete and
+Phase 5 (the AI-driven RCA goal added earlier tonight) becomes buildable for real.
