@@ -1,0 +1,58 @@
+﻿name: Build game-service
+
+# Only fires on changes under app/game-service/** — the jar we commit back
+# lands under ansible/roles/jvm_app/files/, a different path, so this can't
+# retrigger itself. No infinite loop.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/game-service/**"
+  workflow_dispatch: {}   # lets us click "Run workflow" manually from the Actions tab too
+
+permissions:
+  contents: write   # needed so the job can commit the built jar back to the repo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build jar with Maven
+        run: mvn -f app/game-service/pom.xml -B clean package -DskipTests
+
+      - name: Copy built jar into the Ansible role's files/ dir
+        run: |
+          set -euo pipefail
+          JAR=$(ls app/game-service/target/game-service-*.jar | grep -v -- '-sources\|-javadoc' | head -n1)
+          echo "Built: $JAR"
+          mkdir -p ansible/roles/jvm_app/files
+          cp "$JAR" ansible/roles/jvm_app/files/
+
+      - name: Commit the jar back to the repo
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ansible/roles/jvm_app/files/game-service-*.jar
+          if git diff --cached --quiet; then
+            echo "Jar unchanged, nothing to commit."
+            exit 0
+          fi
+          git commit -m "ci: update game-service jar [skip ci]"
+          git push
+
+      # winsrv01 doesn't pull/deploy on its own yet — that's a deliberate,
+      # separate decision (needs SSH secrets wired into this workflow). For
+      # now, deploying the new jar to jvmapp01/jvmapp02 is still a manual
+      # step: `ansible-playbook site.yml --tags jvm_app --ask-vault-pass`
+      # run by hand from controller01, same as every other tier so far.
