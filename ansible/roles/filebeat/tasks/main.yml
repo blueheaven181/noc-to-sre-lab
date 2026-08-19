@@ -1,0 +1,62 @@
+---
+# Ships logs from every RHEL host to Logstash on controller01:5044 (already
+# published in docker/docker-compose.yml, pipeline already accepts a generic
+# beats input - see docker/logstash/pipeline/logstash.conf). No credentials
+# involved anywhere in this role - safe to run standalone, no vault_* deps.
+#
+# Covers what's actually available today without needing app-code changes:
+# nginx access/error logs, MySQL error log, RabbitMQ logs, and journald on
+# every host (which is how game-service's own output is captured for now,
+# until it gets proper structured JSON file logging - see architecture.md).
+#
+# Version pinned to 8.15.1 to match the rest of the ELK stack (docker-compose
+# uses the same version for Elasticsearch/Logstash/Kibana) - mismatched Beats
+# versions against the receiving stack are a common source of subtle issues.
+
+- name: Import the Elastic GPG key
+  ansible.builtin.rpm_key:
+    key: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+
+- name: Add the Elastic 8.x yum repo
+  ansible.builtin.yum_repository:
+    name: elastic-8.x
+    description: Elastic repository for 8.x packages
+    baseurl: https://artifacts.elastic.co/packages/8.x/yum
+    gpgcheck: true
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    enabled: true
+
+- name: Install filebeat (pinned to match the ELK stack version)
+  ansible.builtin.dnf:
+    name: filebeat-8.15.1-1
+    state: present
+
+- name: Deploy filebeat.yml
+  ansible.builtin.template:
+    src: filebeat.yml.j2
+    dest: /etc/filebeat/filebeat.yml
+    owner: root
+    group: root
+    mode: "0600"   # filebeat itself requires this file not be group/world-writable
+  notify: restart filebeat
+
+- name: Enable and start filebeat
+  ansible.builtin.systemd:
+    name: filebeat
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# controller01 is where Logstash's beats input actually listens (port 5044,
+# already published by docker-compose) - but nothing has opened that port at
+# the OS firewalld level yet (see docker-compose.yml's own prereq comment).
+# Every other RHEL host just needs OUTBOUND access, which firewalld allows by
+# default - only the receiving side needs an explicit inbound rule.
+- name: Open firewalld for Logstash's beats input on controller01, lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="5044" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  when: inventory_hostname in groups['controller']

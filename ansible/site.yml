@@ -33,6 +33,15 @@
 # first (they reference vault_redis_password / vault_mysql_root_password /
 # vault_mysqld_exporter_password), same caution as the mysql/redis/rabbitmq
 # tags above: don't run them until that's been created and reviewed.
+#
+# UPDATE — 2026-08-19: vault.yml issue fixed (see group_vars/all/vars.yml),
+# ALL SIX exporters now confirmed live: node_exporter, windows_exporter,
+# nginx_exporter, rabbitmq, mysqld_exporter, redis_exporter. Added `filebeat`
+# tag below — no vault dependency, safe to run standalone, ships nginx/mysql/
+# rabbitmq logs + journald (covers game-service for now) to Logstash on
+# controller01. Remaining Phase 4 work after this: Spring Boot Actuator on
+# game-service (app-code, not Ansible) and Winlogbeat on winsrv01 (blocked on
+# winsrv01 having an actual workload, still unresolved).
 
 - name: Baseline every RHEL host
   hosts: linux_rhel
@@ -120,6 +129,18 @@
     - jvm_app
   roles:
     - jvm_app
+
+# Safe to run standalone, no vault_* dependency. Ships to Logstash on
+# controller01:5044 (already published in docker-compose). Also opens
+# firewalld for the beats input on controller01 itself - see the role's
+# own comment for why that's bundled in here rather than a separate role.
+- name: Filebeat log shipping (net-new)
+  hosts: linux_rhel
+  become: true
+  tags:
+    - filebeat
+  roles:
+    - filebeat
 
 - name: Windows fleet
   hosts: windows

@@ -1,0 +1,57 @@
+filebeat.inputs:
+  # Every RHEL host: systemd journal - covers unit failures, SELinux denials,
+  # and (until game-service gets proper structured file logging) the
+  # game-service application output itself.
+  - type: journald
+    id: journald-{{ inventory_hostname }}
+    fields:
+      log_source: journald
+    fields_under_root: true
+
+{% if 'nginx_hosts' in group_names %}
+  - type: log
+    id: nginx-access-{{ inventory_hostname }}
+    paths:
+      - /var/log/nginx/access.log
+    fields:
+      log_source: nginx_access
+    fields_under_root: true
+
+  - type: log
+    id: nginx-error-{{ inventory_hostname }}
+    paths:
+      - /var/log/nginx/error.log
+    fields:
+      log_source: nginx_error
+    fields_under_root: true
+{% endif %}
+
+{% if 'mysql_hosts' in group_names %}
+  - type: log
+    id: mysql-error-{{ inventory_hostname }}
+    paths:
+      - /var/log/mysqld.log
+    fields:
+      log_source: mysql_error
+    fields_under_root: true
+{% endif %}
+
+{% if 'rabbitmq_hosts' in group_names %}
+  - type: log
+    id: rabbitmq-{{ inventory_hostname }}
+    paths:
+      - /var/log/rabbitmq/*.log
+    fields:
+      log_source: rabbitmq
+    fields_under_root: true
+{% endif %}
+
+output.logstash:
+  hosts: ["192.168.11.10:5044"]
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
