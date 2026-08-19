@@ -1,0 +1,13 @@
+[Unit]
+Description=Redis Exporter
+After=network.target redis.service
+
+[Service]
+User=redis_exporter
+Environment=REDIS_ADDR=redis://127.0.0.1:6379
+Environment=REDIS_PASSWORD={{ vault_redis_password }}
+ExecStart=/usr/local/bin/redis_exporter --web.listen-address=:9121
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

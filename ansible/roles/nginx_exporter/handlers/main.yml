@@ -1,0 +1,5 @@
+---
+- name: restart nginx_exporter
+  ansible.builtin.systemd:
+    name: nginx_exporter
+    state: restarted

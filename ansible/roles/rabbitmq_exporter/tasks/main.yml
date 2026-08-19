@@ -1,0 +1,19 @@
+---
+# Deliberately a separate role/tag from `rabbitmq`, not folded into it — the
+# existing `rabbitmq` role resets vault_rabbitmq_password on every run (see its
+# own tasks/main.yml), which is exactly the kind of live-credential risk we're
+# avoiding until inventory/group_vars/vault.yml actually exists and has been
+# reviewed. This role touches none of that: it only enables a built-in metrics
+# plugin. No new credentials, no vault_* variables, safe to run standalone.
+
+- name: Enable the RabbitMQ Prometheus plugin (built into RabbitMQ >=3.8)
+  ansible.builtin.command: rabbitmq-plugins enable rabbitmq_prometheus
+  register: _rabbitmq_prometheus_enable
+  changed_when: "'already enabled' not in _rabbitmq_prometheus_enable.stdout"
+
+- name: Open firewalld for the RabbitMQ Prometheus metrics endpoint, lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="15692" accept'
+    permanent: true
+    immediate: true
+    state: enabled

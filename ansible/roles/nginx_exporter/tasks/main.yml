@@ -1,0 +1,63 @@
+---
+# No credentials needed: this scrapes nginx's own /nginx_status stub-status
+# page over localhost, which game-proxy.conf.j2 already restricts to 127.0.0.1
+# (allow 127.0.0.1; deny all;) — the exporter runs on the same host, so it can
+# reach it, nothing external can. Safe to run standalone, no vault_* deps.
+#
+# Check https://github.com/nginxinc/nginx-prometheus-exporter/releases for the
+# current version before running against a fresh environment — v1.3.0 below is
+# illustrative, same caveat as the rabbitmq role's repo comment.
+
+- name: Create dedicated nginx_exporter service account
+  ansible.builtin.user:
+    name: nginx_exporter
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Ensure /opt/monitoring exists (shared with node_exporter from the common role)
+  ansible.builtin.file:
+    path: /opt/monitoring
+    state: directory
+    mode: "0755"
+
+- name: Download nginx-prometheus-exporter
+  ansible.builtin.unarchive:
+    src: https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v1.3.0/nginx-prometheus-exporter_1.3.0_linux_amd64.tar.gz
+    dest: /opt/monitoring
+    remote_src: true
+    creates: /opt/monitoring/nginx-prometheus-exporter
+
+- name: Symlink nginx-prometheus-exporter binary
+  ansible.builtin.file:
+    src: /opt/monitoring/nginx-prometheus-exporter
+    dest: /usr/local/bin/nginx-prometheus-exporter
+    state: link
+    owner: nginx_exporter
+
+- name: Install nginx_exporter systemd unit
+  ansible.builtin.template:
+    src: nginx_exporter.service.j2
+    dest: /etc/systemd/system/nginx_exporter.service
+    mode: "0644"
+  notify: restart nginx_exporter
+
+- name: Allow the exporter to reach nginx's stub_status over localhost (SELinux)
+  ansible.posix.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+
+- name: Enable and start nginx_exporter
+  ansible.builtin.systemd:
+    name: nginx_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Open firewalld for nginx_exporter, lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="9113" accept'
+    permanent: true
+    immediate: true
+    state: enabled

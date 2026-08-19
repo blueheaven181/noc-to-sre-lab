@@ -10,6 +10,42 @@ Mirrors a real Azure-hosted gaming platform, deliberately run as self-hosted OSS
 on VMware-local infra instead of Azure PaaS equivalents (Azure Monitor / Managed
 Grafana / Log Analytics) — the point of the lab is doing the plumbing by hand.
 
+## Project goals
+
+1. Run the full lifecycle of a real production system by hand — build it,
+   automate it, observe it, and troubleshoot it when it breaks — the way an
+   SRE actually would, not just read about it.
+2. **(Added 2026-08-18)** Build an AI-driven observability and automated
+   root-cause-analysis (RCA) platform on top of the Phase 4 data (Prometheus
+   metrics + ELK logs). Not scoped yet — approach (LLM incident summarizer vs.
+   anomaly-detection model vs. full automated remediation agent) is an open
+   decision, deliberately deferred until Phase 4 is live and there's actual
+   data to build against. Tracked as a future phase below.
+
+### The bigger picture (recap, 2026-08-18)
+
+You're now in Phase 4: observability. The goal there is to bolt on the same
+kind of monitoring/logging stack a real SRE team would run — Prometheus for
+metrics, Grafana for dashboards, the ELK stack for logs — so the platform
+isn't just "up," it's *observable*: you can see its health, catch problems,
+and eventually build alerting on top of real signals instead of guessing.
+
+Layered on top of that, you made a deliberate call partway through Phase 4 to
+stop doing everything by hand and bring in Ansible — not because the app
+needed it, but because "provisioning and configuring infrastructure as code"
+is itself a core SRE skill, and this was your first real test of whether
+roles written from a plan actually survive contact with a live, imperfect
+system (which, as the 2026-08-17/18 session showed with the nginx01
+registration gap and the VM resource crashes, they don't always cleanly —
+and diagnosing *why* is the actual learning).
+
+So overall: it's less "get a gaming platform running" (that part's done) and
+more "run the full lifecycle of a real production system — build it,
+automate it, observe it, and troubleshoot it when it breaks — the way an SRE
+actually would." And per goal #2 above: the point isn't to end up as someone
+who just watches dashboards — it's to build the layer that reasons about
+what those dashboards are showing and explains *why* something broke.
+
 ## Fleet
 
 | Host        | IP             | OS                  | Role                                   |
@@ -117,6 +153,28 @@ scoped `firewalld` rule to the lab subnet, not `0.0.0.0/0`, and SELinux stays
 (Kibana) — ideally reachable only from the host machine, not the whole lab
 subnet, since these are operator-facing UIs.
 
+### Net-new exporter rollout (updated 2026-08-18)
+
+Implemented as **four separate roles**, not one `monitoring_agents` role as
+originally sketched — kept `nginx_exporter`/`rabbitmq_exporter` (no
+credentials needed) fully decoupled from `redis_exporter`/`mysqld_exporter`
+(need real secrets), so the credential-free two can run today without
+waiting on the vault problem below.
+
+| Role                | Tag                | Hosts        | Status |
+|----------------------|---------------------|--------------|--------|
+| `nginx_exporter`     | `nginx_exporter`    | nginx01      | Ready to run — no vault dependency |
+| `rabbitmq_exporter`  | `rabbitmq_exporter` | rabbitmq01   | Ready to run — no vault dependency (just enables the built-in plugin) |
+| `redis_exporter`     | `redis_exporter`    | redis01      | **Blocked** — needs `vault_redis_password` (must match the already-live `requirepass` value) |
+| `mysqld_exporter`    | `mysqld_exporter`   | mysql01      | **Blocked** — needs `vault_mysql_root_password` + a new `vault_mysqld_exporter_password` for a purpose-built, least-privilege MySQL user (PROCESS + REPLICATION CLIENT + `performance_schema.*:SELECT` only, no access to `gamedb`) |
+
+`inventory/group_vars/vault.yml` still doesn't exist — creating it (with the
+*real*, already-working Redis/MySQL credentials, not new/guessed ones) is the
+blocking prerequisite for the last two. Spring Boot Actuator/Micrometer for
+`game_service` is app-code work (new dependency + config in `app/`, needs a
+rebuild like Session 3's deploy), not an Ansible role — tracked separately,
+not started yet.
+
 ### Open decisions (need a call before/alongside implementation)
 
 1. **winsrv01's workload.** The last journal entry flagged this as unresolved
@@ -142,6 +200,29 @@ subnet, since these are operator-facing UIs.
 5. Provision Grafana dashboards from `dashboards/*.json`, one tier at a time, cross-checking each panel against a real metric you can also see with `curl localhost:PORT/metrics`.
 6. Wire Filebeat → Logstash → Elasticsearch, confirm log lines land in Kibana before building any saved searches.
 
+## Phase 5 (future, unscoped) — AI-driven observability & automated RCA
+
+**Added 2026-08-18** as a new project goal. Hard dependency on Phase 4 being
+live: there's no metrics/log data to reason over otherwise. Direction not yet
+decided — options on the table when this gets picked up:
+
+- **LLM incident summarizer** — on alert, an agent pulls the relevant
+  Prometheus window + ELK logs and produces a plain-English "here's what
+  likely happened" summary for a human to review.
+- **Anomaly detection model** — statistical/ML model over the Prometheus
+  time-series to flag abnormal behavior ahead of a hard threshold alert.
+- **Full automated RCA + remediation agent** — diagnoses *and* acts (restart,
+  scale, rollback) on its own findings. Most ambitious, real operational
+  risk if wrong, needs guardrails.
+
+Revisit this section once Phase 4's exporters/dashboards/logs are confirmed
+working end-to-end — that's the natural point to scope it for real.
+
 ## Next up
 
-Once this is live: CI/CD pipeline (GitHub Actions building the versioned jar automatically instead of manual `scp`), then chaos/postmortem phase — which needs this observability layer to actually be useful (you can't write a postmortem about a failure you couldn't see).
+Immediate: finish Phase 4 (net-new exporters, Grafana dashboards, ELK log
+shipping). After that: CI/CD pipeline (GitHub Actions building the versioned
+jar automatically instead of manual `scp`), the chaos/postmortem phase (needs
+observability to actually be useful — can't write a postmortem about a
+failure you couldn't see), and then Phase 5 above once there's real data to
+build the AI/RCA layer against.

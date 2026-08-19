@@ -1,0 +1,5 @@
+---
+- name: restart redis_exporter
+  ansible.builtin.systemd:
+    name: redis_exporter
+    state: restarted

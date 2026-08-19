@@ -1,0 +1,72 @@
+---
+# Needs vault_mysql_root_password (to create the new user below) AND a NEW
+# vault variable, vault_mysqld_exporter_password (for the exporter's own
+# scoped account — deliberately NOT reusing root or gameapp's password
+# anywhere in this role). Neither exists yet in inventory/group_vars/vault.yml
+# (which doesn't exist at all currently) — this role will fail with an
+# undefined-variable error until that's created and reviewed.
+#
+# The exporter user is intentionally least-privilege: PROCESS + REPLICATION
+# CLIENT globally (needed to read server status), SELECT scoped to
+# performance_schema only — it can never touch gamedb or any other data.
+#
+# Check https://github.com/prometheus/mysqld_exporter/releases for the
+# current version — v0.15.1 below is illustrative, confirm before a fresh run.
+
+- name: Create the scoped mysqld_exporter MySQL user (least privilege, no data access)
+  community.mysql.mysql_user:
+    name: exporter
+    password: "{{ vault_mysqld_exporter_password }}"
+    priv: "*.*:PROCESS,REPLICATION CLIENT/performance_schema.*:SELECT"
+    host: localhost
+    login_user: root
+    login_password: "{{ vault_mysql_root_password }}"
+  no_log: true
+
+- name: Create dedicated mysqld_exporter service account (OS-level)
+  ansible.builtin.user:
+    name: mysqld_exporter
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Ensure /opt/monitoring exists
+  ansible.builtin.file:
+    path: /opt/monitoring
+    state: directory
+    mode: "0755"
+
+- name: Download mysqld_exporter
+  ansible.builtin.unarchive:
+    src: https://github.com/prometheus/mysqld_exporter/releases/download/v0.15.1/mysqld_exporter-0.15.1.linux-amd64.tar.gz
+    dest: /opt/monitoring
+    remote_src: true
+    creates: "/opt/monitoring/mysqld_exporter-0.15.1.linux-amd64"
+
+- name: Symlink mysqld_exporter binary
+  ansible.builtin.file:
+    src: "/opt/monitoring/mysqld_exporter-0.15.1.linux-amd64/mysqld_exporter"
+    dest: /usr/local/bin/mysqld_exporter
+    state: link
+    owner: mysqld_exporter
+
+- name: Install mysqld_exporter systemd unit
+  ansible.builtin.template:
+    src: mysqld_exporter.service.j2
+    dest: /etc/systemd/system/mysqld_exporter.service
+    mode: "0600"   # contains vault_mysqld_exporter_password in plaintext - not world-readable
+  notify: restart mysqld_exporter
+
+- name: Enable and start mysqld_exporter
+  ansible.builtin.systemd:
+    name: mysqld_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Open firewalld for mysqld_exporter, lab subnet only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="192.168.11.0/24" port protocol="tcp" port="9104" accept'
+    permanent: true
+    immediate: true
+    state: enabled

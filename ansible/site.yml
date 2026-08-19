@@ -2,6 +2,8 @@
 # Run everything:   ansible-playbook site.yml --ask-vault-pass
 # Run one tier:     ansible-playbook site.yml --limit mysql_hosts --ask-vault-pass
 # Run one tag:      ansible-playbook site.yml --tags common --ask-vault-pass
+# Safe exporters, no vault needed:
+#                   ansible-playbook site.yml --tags nginx_exporter,rabbitmq_exporter --ask-become-pass
 #
 # Prereqs before this playbook can do anything:
 #   1. Each RHEL host is already registered (subscription-manager register)
@@ -17,6 +19,16 @@
 # under the currently-working app. Start with `--tags common` only (installs
 # node_exporter, safe, no app-tier state touched), and treat the tier-specific
 # tags as a deliberate, reviewed decision each time, not a routine re-run.
+#
+# UPDATE — 2026-08-18: `--tags common` has been run clean across all 7 RHEL
+# hosts and windows_exporter is confirmed live on winsrv01 too (see the
+# 2026-08-18 journal entry). Four new net-new exporter roles/tags were added
+# below (Phase 4 net-new exporters). Two are safe to run right now, no vault
+# needed: `nginx_exporter` and `rabbitmq_exporter`. The other two —
+# `redis_exporter` and `mysqld_exporter` — need vault.yml to actually exist
+# first (they reference vault_redis_password / vault_mysql_root_password /
+# vault_mysqld_exporter_password), same caution as the mysql/redis/rabbitmq
+# tags above: don't run them until that's been created and reviewed.
 
 - name: Baseline every RHEL host
   hosts: linux_rhel
@@ -34,6 +46,15 @@
   roles:
     - nginx
 
+# Safe to run standalone, no vault_* dependency — see UPDATE note above.
+- name: nginx Prometheus exporter (net-new)
+  hosts: nginx_hosts
+  become: true
+  tags:
+    - nginx_exporter
+  roles:
+    - nginx_exporter
+
 - name: MySQL data tier
   hosts: mysql_hosts
   become: true
@@ -41,6 +62,17 @@
     - mysql
   roles:
     - mysql
+
+# NEEDS vault.yml: references vault_mysql_root_password (to create the scoped
+# exporter user) and vault_mysqld_exporter_password (its own account). Do not
+# run until vault.yml exists and those values have been confirmed correct.
+- name: mysqld Prometheus exporter (net-new)
+  hosts: mysql_hosts
+  become: true
+  tags:
+    - mysqld_exporter
+  roles:
+    - mysqld_exporter
 
 - name: Redis cache tier
   hosts: redis_hosts
@@ -50,6 +82,16 @@
   roles:
     - redis
 
+# NEEDS vault.yml: references vault_redis_password (must match the requirepass
+# value already live on redis01 — do not let this reset it to something else).
+- name: Redis Prometheus exporter (net-new)
+  hosts: redis_hosts
+  become: true
+  tags:
+    - redis_exporter
+  roles:
+    - redis_exporter
+
 - name: RabbitMQ messaging tier
   hosts: rabbitmq_hosts
   become: true
@@ -57,6 +99,15 @@
     - rabbitmq
   roles:
     - rabbitmq
+
+# Safe to run standalone, no vault_* dependency — see UPDATE note above.
+- name: RabbitMQ Prometheus plugin (net-new)
+  hosts: rabbitmq_hosts
+  become: true
+  tags:
+    - rabbitmq_exporter
+  roles:
+    - rabbitmq_exporter
 
 - name: JVM game service
   hosts: jvm_app_hosts
