@@ -13,6 +13,14 @@
 # Check https://github.com/prometheus/mysqld_exporter/releases for the
 # current version — v0.15.1 below is illustrative, confirm before a fresh run.
 
+- name: Install the Python MySQL library the mysql_user module needs on the target
+  ansible.builtin.dnf:
+    name: python3-PyMySQL
+    state: present
+  # Normally installed by the `mysql` role's first task — but this role must
+  # not depend on that role having run (it hasn't, on any host, as of
+  # 2026-08-18/19). Safe, idempotent, no credentials involved.
+
 - name: Create the scoped mysqld_exporter MySQL user (least privilege, no data access)
   community.mysql.mysql_user:
     name: exporter
@@ -21,6 +29,13 @@
     host: localhost
     login_user: root
     login_password: "{{ vault_mysql_root_password }}"
+    # Root on this box was set up interactively via `mysql -u root -p`, which
+    # defaults to the local Unix socket, not TCP. Forcing the same connection
+    # method here avoids a TCP-vs-socket auth mismatch that would otherwise
+    # reject even the correct password. check_implicit_admin also lets this
+    # succeed even if root's own auth is in a slightly unusual state.
+    login_unix_socket: /var/lib/mysql/mysql.sock
+    check_implicit_admin: true
   no_log: true
 
 - name: Create dedicated mysqld_exporter service account (OS-level)
