@@ -36,7 +36,7 @@
     # succeed even if root's own auth is in a slightly unusual state.
     login_unix_socket: /var/lib/mysql/mysql.sock
     check_implicit_admin: true
-  no_log: true
+  no_log: false   # TEMPORARY - diagnosing the real error, restoring true once fixed
 
 - name: Create dedicated mysqld_exporter service account (OS-level)
   ansible.builtin.user:
