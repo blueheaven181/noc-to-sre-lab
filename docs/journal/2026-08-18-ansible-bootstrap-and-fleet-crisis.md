@@ -195,12 +195,45 @@ from earlier sessions.
   anyway — the cost of checking is a two-minute CLI login, the cost of not checking is a wrong
   password baked into an encrypted file that's a pain to safely re-open and fix later.
 
+## Third late addendum — same night: filebeat log shipping live
+
+Still going. Wrote a new `filebeat` role (nginx access/error logs, MySQL error log, RabbitMQ
+logs where applicable, plus journald on every RHEL host — journald is how game-service's own
+output gets captured for now, until it has proper structured file logging). No vault
+dependency, safe standalone. Bundled in one small addition: since Logstash's beats input
+(port 5044, already published by docker-compose) never had an OS-level firewalld rule opening
+it, added that as a conditional task within the same role, scoped to `controller01` only.
+
+- Hit one new gotcha: after fixing the vault path to live correctly under `group_vars/all/`,
+  Ansible now tries to decrypt it on **every** run, regardless of tags — so `--ask-vault-pass`
+  became mandatory even for `filebeat`, which uses zero vault variables itself. Worth
+  remembering: fixing the vault to actually load correctly has this side effect on every
+  future command, not just the roles that need secrets.
+- `ansible-playbook site.yml --tags filebeat --ask-vault-pass --ask-become-pass --limit
+  controller01,mysql01,redis01` ran clean (`failed=0` on all three) — the `dnf install` step
+  for `filebeat-8.15.1-1` genuinely took a few minutes (first time any host touched Elastic's
+  own repo, not GitHub or RHEL's mirrors), which looked like a hang but wasn't.
+- **Confirmed working end-to-end**, not just "service started": `curl
+  http://192.168.11.10:9200/_cat/indices?v | grep noclab` showed real documents landing
+  (`noclab-filebeat-2026.08.19`, 5,380 docs and climbing) — filebeat → Logstash →
+  Elasticsearch genuinely works.
+
+## Takeaways (round three)
+
+- The vault-decryption-on-every-run behavior is a good example of "fixing a bug can change
+  behavior elsewhere in ways worth documenting immediately," not just fixing the one thing that
+  was broken — every future command against this playbook now needs `--ask-vault-pass`, forever,
+  even for vault-free roles like `filebeat`.
+- Long as this session ran, working through the crash saga *before* the credential-vault work
+  and *before* the exporter/filebeat work turned out to be the right order — every later piece
+  went faster specifically because the infrastructure underneath it was actually stable by then.
+
 ## Next up
 
-Six RHEL hosts are still gradually coming back online post-crisis (jvmapp01, jvmapp02 still
-off as of this entry) — bring the rest up deliberately, not all at once, watching host
-disk/memory headroom. Remaining Phase 4 work: Spring Boot Actuator/Micrometer on `game-service`
-(app-code work, not an Ansible role — needs a rebuild like Session 3's deploy) and
-Filebeat/Winlogbeat for the ELK log-shipping side. Still open: `winsrv01`'s actual workload
-(unresolved since Phase 3). Once logs are flowing too, Phase 4 is functionally complete and
-Phase 5 (the AI-driven RCA goal added earlier tonight) becomes buildable for real.
+nginx01, rabbitmq01, jvmapp01, and jvmapp02 still need the same `--tags filebeat` run once
+they're back up (same command, just extend `--limit`) — the role and firewalld rule are already
+in place, this is pure mechanical rollout at this point. Remaining real work: Spring Boot
+Actuator/Micrometer on `game-service` (app-code work, not an Ansible role — needs a rebuild
+like Session 3's deploy) and Winlogbeat on `winsrv01` (blocked on winsrv01 having an actual
+workload — still open, unresolved since Phase 3). Once those two land, Phase 4 is functionally
+complete and Phase 5 (the AI-driven RCA goal added earlier tonight) becomes buildable for real.
