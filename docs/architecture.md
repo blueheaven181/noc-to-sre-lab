@@ -57,7 +57,7 @@ what those dashboards are showing and explains *why* something broke.
 | rabbitmq01  | 192.168.11.14  | RHEL 9.5            | RabbitMQ — async event bus              |
 | jvmapp01    | 192.168.11.15  | RHEL 9.5            | Spring Boot `game-service` instance A   |
 | jvmapp02    | 192.168.11.16  | RHEL 9.5            | Spring Boot `game-service` instance B   |
-| winsrv01    | 192.168.11.20  | Windows Server 2022 | **Unassigned** — see Open Decisions     |
+| winsrv01    | 192.168.11.20  | Windows Server 2022 | CI/CD build agent (decided 2026-08-19)  |
 
 All static IPs, one purpose per box (deliberate — see `ansible/README.md`).
 
@@ -128,8 +128,9 @@ as observability work):
   - all RHEL hosts: `journald` (systemd unit failures, SELinux denials —
     directly useful given how much of Phases 1–3's pain was permission/SELinux
     related)
-- **Winlogbeat** on `winsrv01` → same Logstash pipeline, once winsrv01 has an
-  actual workload to generate meaningful logs.
+- **Winlogbeat** on `winsrv01` → same Logstash pipeline, once the CI/CD build
+  agent workload (see "winsrv01's workload" above) is actually running and
+  generating meaningful logs — build history, runner service events, etc.
 
 ### Dashboards — Grafana
 
@@ -175,19 +176,40 @@ blocking prerequisite for the last two. Spring Boot Actuator/Micrometer for
 rebuild like Session 3's deploy), not an Ansible role — tracked separately,
 not started yet.
 
+### winsrv01's workload — resolved 2026-08-19: CI/CD build agent
+
+winsrv01 becomes a self-hosted GitHub Actions runner, building `game-service`
+as part of the CI/CD pipeline (already flagged as the project's "next up"
+after Phase 4) — replacing the manual `scp` + `mvn` build done by hand back
+in Session 3. Rough shape, not yet built:
+
+1. Register winsrv01 as a self-hosted Actions runner for the repo (needs
+   Java 17 + Maven installed, same as jvmapp01/02 needed for the original
+   manual build).
+2. A GitHub Actions workflow (`.github/workflows/`) triggers on push to
+   `app/`, builds the versioned jar on winsrv01, and places it where
+   `ansible/roles/jvm_app/tasks/main.yml`'s `Deploy the versioned application
+   artifact` task expects it — `roles/jvm_app/files/game-service-{{
+   app_version }}.jar` — which closes a real gap: that file doesn't exist
+   today, so the `jvm_app` role's copy task would fail if it were ever run.
+3. Optionally, the workflow triggers `ansible-playbook site.yml --tags
+   jvm_app` afterward for actual deployment — real CI/CD, not just CI.
+4. Once winsrv01 has a real recurring workload, Winlogbeat becomes worth
+   wiring up (its own systemd/service logs, build failures, etc.) — this was
+   the reason Winlogbeat was blocked in the first place.
+
+Not started yet — this is its own chunk of work, tracked here so the
+decision itself doesn't get lost before it's picked up.
+
 ### Open decisions (need a call before/alongside implementation)
 
-1. **winsrv01's workload.** The last journal entry flagged this as unresolved
-   and it affects what the Windows side of Phase 4 is even monitoring. Options
-   discussed nowhere yet — worth a short decision pass before Winlogbeat
-   config is worth writing.
-2. **Retention.** Prometheus default 15-day local retention is probably fine
+1. **Retention.** Prometheus default 15-day local retention is probably fine
    for a lab; Elasticsearch retention needs an explicit policy or the
    `docker/` volume grows unbounded.
-3. **Alerting (Alertmanager).** Not in scope for this pass — dashboards and
+2. **Alerting (Alertmanager).** Not in scope for this pass — dashboards and
    log search first, alerting once there's a baseline of what "normal" looks
    like. Flagging as Phase 5 candidate rather than scope-creeping Phase 4.
-4. **Auth on Grafana/Kibana.** Lab-only for now (default creds behind the
+3. **Auth on Grafana/Kibana.** Lab-only for now (default creds behind the
    firewalld restriction above), but worth a one-line note here so it doesn't
    quietly ship that way if this ever gets exposed beyond localhost.
 
