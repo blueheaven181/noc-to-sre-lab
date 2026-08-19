@@ -1,9 +1,0 @@
----
-timezone: Asia/Dubai
-app_version: "1.0.0"   # bumped automatically by the CI/CD release pipeline later
-
-# Secrets referenced below (vault_mysql_root_password, vault_gameapp_db_password,
-# vault_redis_password, vault_rabbitmq_password, vault_windows_admin_password)
-# live in an ansible-vault encrypted file, NOT this one:
-#   ansible-vault create inventory/group_vars/vault.yml
-# Never commit an unencrypted vault.yml to GitHub.

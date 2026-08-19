@@ -1,0 +1,21 @@
+---
+timezone: Asia/Dubai
+app_version: "1.0.0"   # bumped automatically by the CI/CD release pipeline later
+
+# Secrets referenced below (vault_mysql_root_password, vault_gameapp_db_password,
+# vault_redis_password, vault_rabbitmq_password, vault_mysqld_exporter_password,
+# vault_windows_admin_password) live in an ansible-vault encrypted file, NOT this one:
+#   ansible-vault create inventory/group_vars/all/vault.yml
+#
+# IMPORTANT (fixed 2026-08-19): this file MUST live at group_vars/all/vault.yml,
+# not group_vars/vault.yml — Ansible only auto-loads group_vars files/dirs that
+# match an actual inventory group name ("all", "linux_rhel", etc.). A file just
+# named "vault.yml" sitting directly in group_vars/ is silently never loaded as
+# variables at all, even though --ask-vault-pass still prompts for a password
+# (it prompts based on the CLI flag, not on whether anything actually needed
+# decrypting) — which is exactly what caused a confusing "undefined variable"
+# error even with the correct vault password entered. group_vars/all/ being a
+# directory (this file plus vault.yml both inside it) is what makes both get
+# merged as vars for the "all" group.
+#
+# Never commit an unencrypted vault.yml to GitHub.
