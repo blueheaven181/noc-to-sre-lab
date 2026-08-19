@@ -217,6 +217,10 @@ it, added that as a conditional task within the same role, scoped to `controller
   http://192.168.11.10:9200/_cat/indices?v | grep noclab` showed real documents landing
   (`noclab-filebeat-2026.08.19`, 5,380 docs and climbing) — filebeat → Logstash →
   Elasticsearch genuinely works.
+- Rolled out to the remaining four RHEL hosts (nginx01, rabbitmq01, jvmapp01, jvmapp02) the
+  same night, all clean on the first try (`failed=0` across all four) — no new bugs, since the
+  role and the controller01-side firewall rule were already proven against controller01/mysql01/
+  redis01. **Filebeat is now live on all 7 RHEL hosts.**
 
 ## Takeaways (round three)
 
@@ -230,9 +234,7 @@ it, added that as a conditional task within the same role, scoped to `controller
 
 ## Next up
 
-nginx01, rabbitmq01, jvmapp01, and jvmapp02 still need the same `--tags filebeat` run once
-they're back up (same command, just extend `--limit`) — the role and firewalld rule are already
-in place, this is pure mechanical rollout at this point. Remaining real work: Spring Boot
+Filebeat is done — all 7 RHEL hosts confirmed. Remaining real work: Spring Boot
 Actuator/Micrometer on `game-service` (app-code work, not an Ansible role — needs a rebuild
 like Session 3's deploy) and Winlogbeat on `winsrv01` (blocked on winsrv01 having an actual
 workload — still open, unresolved since Phase 3). Once those two land, Phase 4 is functionally
