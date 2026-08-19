@@ -51,6 +51,25 @@
     state: directory
     mode: "0755"
 
+- name: Ensure /etc/mysqld_exporter exists (holds the .my.cnf-style config, not world-readable)
+  ansible.builtin.file:
+    path: /etc/mysqld_exporter
+    state: directory
+    owner: mysqld_exporter
+    mode: "0700"
+
+- name: Write mysqld_exporter's .my.cnf-style config
+  ansible.builtin.template:
+    src: my.cnf.j2
+    dest: /etc/mysqld_exporter/.my.cnf
+    owner: mysqld_exporter
+    mode: "0600"   # contains vault_mysqld_exporter_password in plaintext - not world-readable
+  notify: restart mysqld_exporter
+  # v0.15.1 doesn't reliably honor DATA_SOURCE_NAME - it defaults to looking
+  # for a my.cnf-style file and fails validation ("no user specified in
+  # section or parent") if one isn't explicitly given via --config.my-cnf.
+  # This is the documented, version-stable way to configure it.
+
 - name: Download mysqld_exporter
   ansible.builtin.unarchive:
     src: https://github.com/prometheus/mysqld_exporter/releases/download/v0.15.1/mysqld_exporter-0.15.1.linux-amd64.tar.gz
@@ -69,7 +88,7 @@
   ansible.builtin.template:
     src: mysqld_exporter.service.j2
     dest: /etc/systemd/system/mysqld_exporter.service
-    mode: "0600"   # contains vault_mysqld_exporter_password in plaintext - not world-readable
+    mode: "0644"   # no secret in here anymore - password now lives in /etc/mysqld_exporter/.my.cnf (0600)
   notify: restart mysqld_exporter
 
 - name: Enable and start mysqld_exporter
