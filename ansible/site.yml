@@ -42,6 +42,19 @@
 # controller01. Remaining Phase 4 work after this: Spring Boot Actuator on
 # game-service (app-code, not Ansible) and Winlogbeat on winsrv01 (blocked on
 # winsrv01 having an actual workload, still unresolved).
+#
+# UPDATE — 2026-08-20: CI/CD (winsrv01 self-hosted runner) went live and
+# deployed a real jar via `--tags jvm_app` for the first time — which
+# revealed `jvm_app` had been silently broken since the role was first
+# written: its systemd unit never loaded any secrets file, so game-service
+# was running on placeholder DB credentials baked into the jar, not the real
+# ones. Fixed by adding a `game-service.env.j2` template (see the role's
+# tasks/main.yml comment for the full story) and wiring `EnvironmentFile=`
+# into the unit. `jvm_app` now NEEDS vault.yml too — references
+# `vault_gameapp_db_password`, `vault_redis_password`, and
+# `vault_rabbitmq_password` (the first and third of which weren't in the
+# vault until tonight; see the journal entry for how the gameapp MySQL
+# password itself was reconciled).
 
 - name: Baseline every RHEL host
   hosts: linux_rhel
@@ -122,6 +135,9 @@
   roles:
     - rabbitmq_exporter
 
+# NEEDS vault.yml (as of 2026-08-20): references vault_gameapp_db_password,
+# vault_redis_password, and vault_rabbitmq_password to template the app's
+# game-service.env — see the UPDATE note above for why this changed.
 - name: JVM game service
   hosts: jvm_app_hosts
   become: true

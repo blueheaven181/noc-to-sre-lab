@@ -20,6 +20,27 @@
     group: gameapp
     mode: "0750"
 
+# Fixed 2026-08-20: this task (and the matching EnvironmentFile= line in
+# game-service.service.j2) didn't exist before tonight. The role deployed a
+# systemd unit that never actually loaded any secrets file, so the app fell
+# back to whatever default DB_HOST/DB_PASSWORD were baked into the jar's
+# application-lab.yml at build time (a placeholder that pointed at the
+# hostname "mysql01", which isn't DNS-resolvable on this network, and a
+# password that didn't match MySQL's real one either). This had been quietly
+# broken since the role was first written; only surfaced when jvmapp01/02
+# actually needed a fresh restart. Uses IPs (via ansible_host), not
+# hostnames, deliberately — this lab has no real DNS for its own hosts, and
+# hostname-based connection strings are exactly what broke this the first
+# time around.
+- name: Template the app's runtime secrets/environment file
+  ansible.builtin.template:
+    src: game-service.env.j2
+    dest: /opt/game-service/game-service.env
+    owner: gameapp
+    group: gameapp
+    mode: "0600"
+  notify: restart game-service
+
 # The versioned jar lands in roles/jvm_app/files/ via your CI/CD pipeline
 # (built once at step 4 of the release pipeline, never rebuilt here - see the
 # release pipeline diagram from earlier).

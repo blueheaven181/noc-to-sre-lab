@@ -10,6 +10,7 @@ ExecStart=/usr/bin/java -jar /opt/game-service/game-service-current.jar --server
 Restart=on-failure
 RestartSec=5
 Environment=SPRING_PROFILES_ACTIVE=lab
+EnvironmentFile=/opt/game-service/game-service.env
 
 [Install]
 WantedBy=multi-user.target
