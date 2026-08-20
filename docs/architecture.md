@@ -128,10 +128,18 @@ as observability work):
   - all RHEL hosts: `journald` (systemd unit failures, SELinux denials —
     directly useful given how much of Phases 1–3's pain was permission/SELinux
     related)
-- **Winlogbeat** on `winsrv01` → same Logstash pipeline. Unblocked as of
-  2026-08-20 — the CI/CD build agent workload (see "winsrv01's workload"
-  below) is live and generating real logs (runner service events, build
-  history) — not yet wired up, but no longer blocked on anything.
+- **Winlogbeat** on `winsrv01` → same Logstash pipeline. **Done and confirmed
+  live as of 2026-08-20** — `ansible/roles/winlogbeat/`, ships
+  Application/System/Security event logs. This was the first Ansible play to
+  ever need a genuinely working WinRM connection to winsrv01, which surfaced
+  four independent pre-existing bugs along the way (wrong `ansible_user`,
+  `ansible.cfg`'s global `become=True` breaking WinRM, `pywinrm` never
+  installed on controller01, and `win_template` silently not rendering
+  Jinja2 due to a collection/core version mismatch) — see the 2026-08-20
+  journal entry for the full chain. Verified against Elasticsearch directly,
+  not just "the service says Running": `noclab-winlogbeat-*` had 5,955
+  documents within minutes, including real, correctly-tagged Service
+  Control Manager events.
 
 ### Dashboards — Grafana
 
@@ -224,9 +232,12 @@ hand back in Session 3.
    hand-placed file. `jvm_app` now needs the vault too —
    `vault_gameapp_db_password` and `vault_rabbitmq_password` joined
    `vault_redis_password` as secrets this role reads.
-4. **Now unblocked, not yet done.** winsrv01 has a real recurring workload
-   (the runner service itself, every build it runs), so Winlogbeat is worth
-   wiring up next — see the Logs — ELK section above.
+4. **Done and confirmed live as of 2026-08-20.** Winlogbeat now ships
+   winsrv01's Application/System/Security event logs to the same Logstash
+   pipeline every RHEL host uses — see the Logs — ELK section above and the
+   2026-08-20 journal entry for the four-bug chain this surfaced (wrong
+   `ansible_user`, `ansible.cfg`'s global `become`, missing `pywinrm` on
+   controller01, `win_template` not rendering Jinja2).
 
 ### Open decisions (need a call before/alongside implementation)
 
@@ -269,14 +280,17 @@ working end-to-end — that's the natural point to scope it for real.
 
 ## Next up
 
-CI/CD is live (GitHub Actions on a self-hosted winsrv01 runner, builds
-`game-service` and commits the jar back automatically — see "winsrv01's
-workload" above), Spring Boot Actuator/Micrometer is live too — `game_service`
-shows `2/2 up` in Prometheus with real JVM/HTTP metrics flowing from both
-jvmapp01 and jvmapp02 — and the first Grafana dashboard (`game-service`, 14
-panels) is live and verified against real data. Immediate remaining work:
-Winlogbeat on winsrv01 (now unblocked), and dashboards for the other tiers
-(fleet overview, nginx, MySQL, Redis, RabbitMQ). After that: the
-chaos/postmortem phase (needs observability to actually be useful — can't
-write a postmortem about a failure you couldn't see), and then Phase 5 above
-once there's real data to build the AI/RCA layer against.
+**Phase 4 is functionally complete as of 2026-08-20.** CI/CD is live (GitHub
+Actions on a self-hosted winsrv01 runner, builds `game-service` and commits
+the jar back automatically — see "winsrv01's workload" above), Spring Boot
+Actuator/Micrometer is live — `game_service` shows `2/2 up` in Prometheus
+with real JVM/HTTP metrics flowing from both jvmapp01 and jvmapp02 — the
+first Grafana dashboard (`game-service`, 14 panels) is live and verified
+against real data, and Winlogbeat now ships winsrv01's Event Log to the same
+ELK pipeline every RHEL host uses. Immediate remaining work: dashboards for
+the other tiers (fleet overview, nginx, MySQL, Redis, RabbitMQ) — built by
+hand in the Grafana UI with guidance next time, not auto-generated. After
+that: the chaos/postmortem phase (needs observability to actually be useful
+— can't write a postmortem about a failure you couldn't see), and then
+Phase 5 above, now genuinely buildable since there's real metrics and log
+data across the whole fleet to reason over.

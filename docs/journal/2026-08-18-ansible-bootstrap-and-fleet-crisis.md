@@ -557,18 +557,82 @@ lab, not a delivery pipeline. Plan for next dashboard session: start with a sing
 (something like CPU Usage % or Live Threads — one query, one viz type) before moving on to
 multi-series ones like Heap Memory or Request Rate by Status.
 
+## Winlogbeat: the last Phase 4 piece, and a real chain of first-time-only bugs
+
+Added a new `winlogbeat` Ansible role (`ansible/roles/winlogbeat/`) - downloads the official
+Winlogbeat 8.15.1 zip (version-pinned to match the rest of the ELK stack, same discipline as
+`filebeat`), extracts it, deploys `winlogbeat.yml` pointed at the Application/System/Security
+event logs, registers it as a Windows service via the zip's own bundled install script, starts it.
+Ships to the exact same Logstash beats input `filebeat` already uses - no new firewall rule needed,
+since winsrv01 only needs outbound access and controller01's inbound 5044 was already opened.
+
+This was the very first time any Ansible play actually needed a *working* WinRM connection to
+winsrv01 end-to-end, and it surfaced four real, independent, pre-existing bugs that had simply
+never been exercised before - each one only visible once the previous one was fixed:
+
+1. **`ansible_user: labadmin` - no such account has ever existed.** `bootstrap-winrm.ps1` never
+   creates a "labadmin" user, it just turns on the WinRM listener under whoever runs it - and
+   every terminal session all project long has actually used the built-in `Administrator` account
+   (`Get-LocalUser` on winsrv01 confirmed only Administrator/DefaultAccount/Guest/
+   WDAGUtilityAccount exist). Fixed by correcting `group_vars/windows.yml` to `Administrator`.
+   Also hit `vault_windows_admin_password is undefined` once along the way despite the key
+   genuinely being present in the vault (confirmed via `ansible-vault view`) - never fully pinned
+   down why, an identical retry got past it cleanly with no vault content changed, so almost
+   certainly a mistyped vault password on that one attempt rather than a real bug.
+2. **`ansible.cfg`'s global `[privilege_escalation] become = True`** applies to every host in the
+   inventory, including winsrv01 - fine for the RHEL fleet's `sudo`, meaningless and actively
+   broken for WinRM/PowerShell, which has no concept of `sudo` at all
+   ("The powershell shell family is incompatible with the sudo become plugin"). Fixed by adding
+   `ansible_become: false` to `group_vars/windows.yml`, scoped to the whole `windows` group rather
+   than patching `become: false` onto every individual play in `site.yml` - fixes it for
+   `windows_common` and any future Windows role too, not just this one. First attempt at this fix
+   silently didn't count because the commit was never pushed from the working PC - good reminder
+   to verify a fix actually landed (`git log`, `cat` the file) rather than assume, same lesson
+   from the stale-checkout saga a few nights ago.
+3. **controller01 never had `pywinrm` installed** - the Python library its own Ansible control
+   process needs locally to speak WinRM at all ("winrm or requests is not installed"). Not even
+   `pip3` itself was present (RHEL doesn't ship it by default). This strongly suggests the earlier
+   "windows_exporter confirmed live via Ansible" claim from the 2026-08-18/19 journal entries
+   wasn't as fully WinRM-verified as it sounded at the time - no WinRM-based Ansible run against
+   winsrv01 could have worked without this dependency present. Fixed with
+   `sudo dnf install -y python3-pip && pip3 install --user pywinrm`.
+4. **`ansible.windows.win_template` silently failed to render Jinja2** - deployed the `.j2`
+   source file completely un-rendered, literal `{{ hostvars[...] }}` syntax and all, which then
+   crashed Winlogbeat on startup ("missing port in address"). Every playbook run had already been
+   printing `[WARNING]: Collection ansible.windows does not support Ansible version 2.14.17` -
+   this is that warning turning into a real, narrow breakage: the other `win_*` modules in the
+   role (`win_get_url`, `win_unzip`, `win_service`) all worked fine despite the same warning, so
+   it wasn't a blanket failure, just this one module's templating codepath. Fixed by forcing the
+   Jinja rendering to happen explicitly via `lookup('ansible.builtin.template', ...)` and shipping
+   the already-rendered text over with `win_copy` instead - sidesteps whatever's broken in
+   `win_template` specifically rather than chasing down the exact collection/core version fix.
+
+Also a good-natured detour: burned a round of debugging on `Test-Path "C:\Program Files\Elastic"`
+returning `False` and a `Get-ChildItem` listing full of NVIDIA/NZXT CAM/HWiNFO64/Rainmeter/
+Zoom/WinRAR - which was the actual local Windows PC's own `C:\Program Files`, not an RDP session
+into winsrv01. Once actually RDP'd into `192.168.11.20` as Administrator, everything was exactly
+where it should be.
+
+Verified for real, not just "the service says Running": `Get-Service winlogbeat` showed `Running`,
+but the more meaningful check was Elasticsearch itself -
+`http://192.168.11.10:9200/noclab-winlogbeat-*/_count` returned `5955` documents within minutes of
+the fix landing, and a sample document was a real, freshly-timestamped Service Control Manager
+event ("The Network Setup Service service entered the running state"), correctly tagged
+`host: winsrv01`, `log_source: winlog_system`, `agent.type: winlogbeat`. The service's own log did
+briefly show a batch of 1500 failed publishes right at startup - not a real problem, just Ansible's
+"restart winlogbeat" handler firing right after the "enable and start" task had already started it
+fresh in the same play, interrupting the very first batch mid-flight. It picked back up cleanly on
+the handler's restart.
+
 ## Next up
 
-`game-service` is fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading real
-reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable across
-multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just "the jar
-landed in the repo." Spring Boot Actuator/Micrometer is done and confirmed live — Prometheus shows
-`game_service (2/2 up)` with real JVM/HTTP metrics flowing — and the first Grafana dashboard is
-live and verified against real data too. Two small cleanup items left over from the earlier vault
-detour, neither urgent: `vault_mysql_root_password` still needs one more fix to read the actual
-real value (`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`,
-`ansible/{msg:`) showed up as untracked on `controller01` — harmless, just need deleting.
-Remaining real work: Winlogbeat on `winsrv01` (unblocked, not yet wired up), and more dashboards
-for the other tiers (MySQL, Redis, RabbitMQ, nginx, Windows) — next time, built by hand in the
-Grafana UI with guidance, not auto-generated (see note above). Once Winlogbeat lands, Phase 4 is
-functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
+Phase 4 is now functionally complete: CI/CD, Spring Boot Actuator/Micrometer, the first Grafana
+dashboard, and Winlogbeat are all live and confirmed working end-to-end with real data, not just
+"the task said changed." Two small cleanup items left over from the earlier vault detour, neither
+urgent: `vault_mysql_root_password` still needs one more fix to read the actual real value
+(`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`, `ansible/{msg:`) showed
+up as untracked on `controller01` - harmless, just need deleting. Remaining real work: more Grafana
+dashboards for the other tiers (MySQL, Redis, RabbitMQ, nginx, Windows fleet overview) - built by
+hand in the Grafana UI with guidance next time, not auto-generated (see the earlier note on this).
+After dashboards: the chaos/postmortem phase, then Phase 5 (the AI-driven RCA goal), now genuinely
+buildable since there's real metrics and log data across the whole fleet to reason over.
