@@ -1,0 +1,59 @@
+---
+# Ships Windows Event Log entries (Application, System, Security) from
+# winsrv01 to the same Logstash beats input the RHEL fleet's `filebeat` role
+# already uses (controller01:5044) - Logstash's pipeline.conf has said
+# "Winlogbeat (winsrv01) ... not yet automated" since Phase 4 started; this
+# role is that automation, added 2026-08-20 once winsrv01 had a real
+# workload (the GitHub Actions runner) worth actually watching.
+#
+# Version pinned to 8.15.1 to match the rest of the ELK stack, same
+# discipline as the filebeat role - mismatched Beats versions against the
+# receiving stack are a common source of subtle issues.
+#
+# No vault_* dependency - safe to run standalone.
+#
+# No firewall task needed here (unlike filebeat's role, which opens
+# controller01's inbound 5044 for the whole lab subnet already) - winsrv01
+# only needs OUTBOUND access to controller01:5044, and Windows Firewall
+# allows outbound by default, same reasoning as filebeat's RHEL hosts.
+
+- name: Download Winlogbeat zip
+  ansible.windows.win_get_url:
+    url: https://artifacts.elastic.co/downloads/beats/winlogbeat/winlogbeat-8.15.1-windows-x86_64.zip
+    dest: C:\Windows\Temp\winlogbeat-8.15.1-windows-x86_64.zip
+
+- name: Extract Winlogbeat
+  community.windows.win_unzip:
+    src: C:\Windows\Temp\winlogbeat-8.15.1-windows-x86_64.zip
+    dest: C:\Program Files\Elastic
+    remote_src: true   # the zip is already on winsrv01 (downloaded above), not the controller
+    creates: "{{ winlogbeat_install_dir }}\\winlogbeat.exe"
+
+- name: Deploy winlogbeat.yml
+  ansible.windows.win_template:
+    src: winlogbeat.yml.j2
+    dest: "{{ winlogbeat_install_dir }}\\winlogbeat.yml"
+  notify: restart winlogbeat
+
+# The zip ships its own install-service-winlogbeat.ps1 (registers the
+# Windows service pointing at winlogbeat.exe in this same folder) - it's
+# already idempotent internally (stops/deletes any existing "winlogbeat"
+# service before recreating), but only worth running once; a config-only
+# change should go through the "restart winlogbeat" handler above instead,
+# not a full service re-registration.
+- name: Check whether the winlogbeat service is already registered
+  ansible.windows.win_service_info:
+    name: winlogbeat
+  register: winlogbeat_svc_check
+
+- name: Register winlogbeat as a Windows service
+  ansible.windows.win_shell: .\install-service-winlogbeat.ps1
+  args:
+    chdir: "{{ winlogbeat_install_dir }}"
+  when: winlogbeat_svc_check.services | length == 0
+
+- name: Enable and start winlogbeat
+  ansible.windows.win_service:
+    name: winlogbeat
+    start_mode: auto
+    state: started

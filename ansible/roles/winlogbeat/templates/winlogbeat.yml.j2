@@ -1,0 +1,32 @@
+winlogbeat.event_logs:
+  # Covers OS-level events plus anything a Windows service - like the
+  # GitHub Actions runner - writes into the Application log.
+  - name: Application
+    fields:
+      log_source: winlog_application
+    fields_under_root: true
+
+  - name: System
+    fields:
+      log_source: winlog_system
+    fields_under_root: true
+
+  - name: Security
+    fields:
+      log_source: winlog_security
+    fields_under_root: true
+
+# Uses ansible_host, not a hardcoded IP or hostname (filebeat.yml.j2 still
+# hardcodes 192.168.11.10 - fine there since it hasn't caused a problem, but
+# this follows the more resilient pattern adopted for game-service.env.j2
+# after this lab's DNS incident) - one less hardcoded address to update if
+# controller01 ever moves.
+output.logstash:
+  hosts: ["{{ hostvars[groups['controller'][0]]['ansible_host'] }}:5044"]
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: C:\ProgramData\winlogbeat\logs
+  name: winlogbeat
+  keepfiles: 7

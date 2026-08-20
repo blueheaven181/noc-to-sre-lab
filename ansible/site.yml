@@ -55,6 +55,11 @@
 # `vault_rabbitmq_password` (the first and third of which weren't in the
 # vault until tonight; see the journal entry for how the gameapp MySQL
 # password itself was reconciled).
+#
+# UPDATE — 2026-08-20 (later the same night): added the `winlogbeat` tag
+# below, now that winsrv01 has a real recurring workload worth watching (the
+# CI runner). No vault dependency, safe to run standalone — same as
+# `filebeat`. This closes out the last open Phase 4 gap from the note above.
 
 - name: Baseline every RHEL host
   hosts: linux_rhel
@@ -164,3 +169,15 @@
     - windows_common
   roles:
     - windows_common
+
+# Safe to run standalone, no vault_* dependency. Ships Windows Event Log
+# entries to the same Logstash beats input the filebeat role already uses -
+# no firewall task needed here since winsrv01 only needs outbound access,
+# which Windows Firewall allows by default. See the role's own comment for
+# the full story.
+- name: Winlogbeat log shipping (net-new)
+  hosts: windows
+  tags:
+    - winlogbeat
+  roles:
+    - winlogbeat

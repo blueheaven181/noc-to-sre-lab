@@ -1,0 +1,6 @@
+---
+# Kept in one place since it's referenced by both the extract task (as the
+# "creates" idempotency marker) and the template/service-install tasks -
+# the zip's top-level folder name is derived from its filename, which is
+# why this has to change if the pinned version in tasks/main.yml ever does.
+winlogbeat_install_dir: 'C:\Program Files\Elastic\winlogbeat-8.15.1-windows-x86_64'
