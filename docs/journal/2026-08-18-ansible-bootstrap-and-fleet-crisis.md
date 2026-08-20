@@ -445,6 +445,24 @@ intervals.
   memory, or a vault entry vs. either of those), don't assume either one is the source of truth by
   default — the live system is the only real tiebreaker.
 
+## One more mistake, right at the end: tried to commit from the wrong machine
+
+After getting `game-service` fixed, sent the docs commit to `controller01` first — wrong call.
+`controller01` has never had a git author identity configured there (`Author identity unknown`)
+and its GitHub access is read-only (`git push` failed with a `403`, "Write access to repository
+not granted"). It's only ever been a `git pull` machine — fetches code to run Ansible, never
+pushes anything back. The actual commit had to happen on the Windows PC instead, where the
+files were already staged via the device bridge from earlier. Worth remembering going forward:
+**controller01 pulls, the working PC pushes** — never assume every machine in the loop has the
+same git permissions just because it can read the repo fine.
+
+Also recurred one more time on the way out: the device bridge's sandboxed shell left behind a
+fresh stale `.git/index.lock` on the Windows PC's checkout, blocking a real `git commit` in
+PowerShell, purely from running read-only commands like `git status` against that same mounted
+repo. Same fix as every other time tonight — `mv` the lock file out of the way (`rm` fails with
+"Operation not permitted" on this mount, `mv` doesn't) — but worth noting this can happen from
+completely passive commands, not just `git add`.
+
 ## Next up
 
 `game-service` is now fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading
