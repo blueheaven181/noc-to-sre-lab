@@ -545,6 +545,18 @@ at 0 (expected, no real game traffic yet). The one empty panel, HikariCP Connect
 is correctly empty — no connection has needed to be acquired past the initial pool warm-up since
 the app hasn't served a real DB-touching request yet.
 
+## A note on how future dashboard panels get built
+
+Tonight's `game-service` dashboard was generated wholesale (Python script → JSON → committed).
+That got it live fast, but it's not how the *remaining* dashboards (fleet overview, nginx, MySQL,
+Redis, RabbitMQ) should go. Explicitly asked for a different approach next time: build a panel or
+two by hand, directly in the Grafana UI, instead of having a finished JSON file handed over —
+picking the metric, writing the PromQL, choosing the visualization type, understanding *why* each
+choice was made, not just that it works. Fits the whole point of this project — this is a learning
+lab, not a delivery pipeline. Plan for next dashboard session: start with a single-metric panel
+(something like CPU Usage % or Live Threads — one query, one viz type) before moving on to
+multi-series ones like Heap Memory or Request Rate by Status.
+
 ## Next up
 
 `game-service` is fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading real
@@ -557,5 +569,6 @@ detour, neither urgent: `vault_mysql_root_password` still needs one more fix to 
 real value (`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`,
 `ansible/{msg:`) showed up as untracked on `controller01` — harmless, just need deleting.
 Remaining real work: Winlogbeat on `winsrv01` (unblocked, not yet wired up), and more dashboards
-for the other tiers (MySQL, Redis, RabbitMQ, nginx, Windows). Once Winlogbeat lands, Phase 4 is
+for the other tiers (MySQL, Redis, RabbitMQ, nginx, Windows) — next time, built by hand in the
+Grafana UI with guidance, not auto-generated (see note above). Once Winlogbeat lands, Phase 4 is
 functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
