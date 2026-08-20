@@ -463,16 +463,55 @@ repo. Same fix as every other time tonight — `mv` the lock file out of the way
 "Operation not permitted" on this mount, `mv` doesn't) — but worth noting this can happen from
 completely passive commands, not just `git add`.
 
+## Sixth addendum (2026-08-20): Spring Boot Actuator + Micrometer wiring
+
+With `game-service` finally stable end-to-end, moved on to the other pending Phase 4 item:
+actually exposing Prometheus-format metrics from the app itself. `spring-boot-starter-actuator`
+had been in `pom.xml` since Session 3, but that alone only gives Actuator's default JSON
+endpoints (`/actuator/health`, `/actuator/info`) — it does *not* produce a `/actuator/prometheus`
+endpoint. Two things were missing, both app-code (not Ansible):
+
+1. **`app/game-service/pom.xml`** — added `io.micrometer:micrometer-registry-prometheus` as a new
+   dependency, right after `spring-boot-starter-actuator`. This is the bridge library that
+   translates Micrometer's metrics into the text format Prometheus's scraper expects; without it,
+   even a `prometheus`-exposed endpoint would 404.
+2. **`app/game-service/src/main/resources/application.yml`** — `management.endpoints.web.exposure.include`
+   only listed `health,info`. Added `prometheus` to that list. Without this, the endpoint would
+   exist internally (dependency present) but Spring Boot wouldn't actually serve it over HTTP.
+
+Small bonus discovery while in there: `docker/prometheus/prometheus.yml` on controller01 *already*
+had a `game_service` scrape job defined (`jvmapp01:8080` and `jvmapp02:8080`, path
+`/actuator/prometheus`) — someone (past-me, some earlier session) had already anticipated this and
+wired the Prometheus side up front, marked "net-new" and expected to sit `DOWN` until the app
+side caught up. So no Prometheus config changes needed tonight — just the two app-code changes
+above. Once the new jar with the Micrometer dependency baked in is built and deployed, that
+target should flip from `DOWN` to `UP` on its own.
+
+Both files delivered via the usual device-bridge flow and staged with `git add` on the **working
+PC** (`app/game-service/pom.xml`, `app/game-service/src/main/resources/application.yml`).
+Also noticed an unrelated pending change already sitting in the working tree on the working PC,
+untouched by tonight's work: `.github/workflows/build-game-service.yml` shows a one-line diff
+that's just a trailing-whitespace/line-ending difference on the last comment line (no actual
+content change) — left unstaged, not part of this commit, worth a look later but harmless.
+
+Next real steps once this addendum is committed and pushed from the working PC: trigger a CI
+build (push to `app/game-service/**`, or a manual `workflow_dispatch`) to bake the new
+dependency into a fresh jar, `git pull` on **controller01 first** (per the hard-learned lesson
+from the previous addendum — never trust "up to date" without pulling), then
+`ansible-playbook site.yml --tags jvm_app --ask-vault-pass --ask-become-pass` from controller01 to
+deploy, then confirm the `game_service` target shows `UP` in Prometheus with real JVM/HTTP
+metrics flowing.
+
 ## Next up
 
-`game-service` is now fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading
-real reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable
-across multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just
-"the jar landed in the repo." Two small cleanup items left over from tonight's vault detour,
-neither urgent: `vault_mysql_root_password` still needs one more fix to read the actual real
-value (`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`,
-`ansible/{msg:`) showed up as untracked on `controller01` — harmless, just need deleting.
-Remaining real work: Spring Boot Actuator/Micrometer on `game-service` (still not started —
-`pom.xml` already has `spring-boot-starter-actuator` but not `micrometer-registry-prometheus`),
-and Winlogbeat on `winsrv01` (unblocked, not yet wired up). Once those two land, Phase 4 is
-functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
+`game-service` is fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading real
+reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable across
+multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just "the jar
+landed in the repo." Two small cleanup items left over from the earlier vault detour, neither
+urgent: `vault_mysql_root_password` still needs one more fix to read the actual real value
+(`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`, `ansible/{msg:`) showed
+up as untracked on `controller01` — harmless, just need deleting. Actuator/Micrometer app-code
+changes are done as of tonight (see addendum above) but **not yet built or deployed** — still need
+a fresh CI build and an `--tags jvm_app` run to actually land on jvmapp01/jvmapp02. Remaining real
+work after that: Winlogbeat on `winsrv01` (unblocked, not yet wired up). Once both of those land,
+Phase 4 is functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.

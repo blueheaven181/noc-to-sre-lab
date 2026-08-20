@@ -42,6 +42,15 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- Added 2026-08-20: without this, /actuator/prometheus doesn't exist at
+         all (actuator alone only gives health/info-style JSON endpoints).
+         This is what lets Prometheus actually scrape JVM + HTTP metrics -
+         docker/prometheus/prometheus.yml already has the game_service scrape
+         job defined (net-new), it's just been sitting there DOWN until now. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.mysql</groupId>
       <artifactId>mysql-connector-j</artifactId>

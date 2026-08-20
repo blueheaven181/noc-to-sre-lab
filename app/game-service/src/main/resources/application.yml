@@ -35,7 +35,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Added 2026-08-20: "prometheus" wasn't listed here before, so even
+        # once the micrometer-registry-prometheus dependency exists,
+        # Spring Boot won't expose the endpoint over HTTP without this.
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: always
