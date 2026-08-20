@@ -198,7 +198,18 @@ hand back in Session 3.
    `ansible-playbook site.yml --tags jvm_app` after a successful build stays
    a manual step — wiring that in means putting SSH secrets into GitHub
    Actions, a call worth making on purpose later rather than defaulting into
-   during this pass.
+   during this pass. **Done manually and confirmed end-to-end on
+   2026-08-20** — deploying the jar surfaced three real, independent bugs
+   (DNS, a missing `EnvironmentFile=` wiring in the `jvm_app` role, and
+   drifted credentials never reconciled into the vault) plus a stale git
+   checkout on `controller01` masking the fix for a while. All fixed for
+   real — see the 2026-08-20 journal addendum for the full story.
+   `game-service` on jvmapp01/jvmapp02 now reads its real DB/Redis/RabbitMQ
+   credentials from an Ansible-managed `game-service.env`
+   (`templates/game-service.env.j2` in the `jvm_app` role), not a
+   hand-placed file. `jvm_app` now needs the vault too —
+   `vault_gameapp_db_password` and `vault_rabbitmq_password` joined
+   `vault_redis_password` as secrets this role reads.
 4. **Now unblocked, not yet done.** winsrv01 has a real recurring workload
    (the runner service itself, every build it runs), so Winlogbeat is worth
    wiring up next — see the Logs — ELK section above.

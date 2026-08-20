@@ -344,15 +344,117 @@ worth making on purpose later rather than defaulting into tonight.
   — the URL itself (`github.com/settings/...` vs. `github.com/<owner>/<repo>/settings`) is the
   fastest way to tell which one you're actually looking at.
 
+## Fifth late addendum — 2026-08-20: deploying the CI/CD jar for real surfaces three more bugs, one vault-editing detour, and a stale-git-checkout plot twist
+
+Ran `ansible-playbook site.yml --tags jvm_app --ask-vault-pass` to actually deploy tonight's
+freshly-built jar to jvmapp01/jvmapp02. Both crashed immediately. What followed was a genuinely
+long chain of layered problems — worth documenting in full since almost every step taught
+something real.
+
+**Bug #1 — DNS.** First crash: `java.net.UnknownHostException: mysql01`. This lab has no real
+DNS for its own hostnames — `resolv.conf` points at `8.8.8.8`, which has no idea what `mysql01`
+is. Fixed immediately with static `/etc/hosts` entries on both jvmapp hosts for the whole fleet.
+This had been silently masked for weeks: the old, long-running `game-service` processes already
+had their DB connections established from whenever this last worked, and a live JVM doesn't
+re-resolve a hostname for a connection it's already holding — only a fresh restart exposed it.
+
+**Bug #2 — a real gap in the `jvm_app` role, not just this host.** After the DNS fix, a
+*different* failure: `Access denied for user 'gameapp'@'...' (using password: YES)`. Tracked
+down to: the role's systemd unit template never had an `EnvironmentFile=` line, so it was never
+loading `/opt/game-service/game-service.env` — a `.env` file sitting on disk since Session 3
+with the app's real DB/Redis/RabbitMQ credentials, completely unmanaged by Ansible. The app was
+silently running on whatever placeholder default is baked into the jar's `application-lab.yml`.
+This bug had existed since the role was first written; nothing had ever forced a fresh restart
+that would have exposed it until tonight.
+
+**Bug #3 — even the real credentials had drifted.** Extracted the actual `DB_PASSWORD` from
+`game-service.env` and tested it directly against MySQL — still `Access denied`. Nobody had a
+record anywhere of what MySQL's *actual* current `gameapp` password was; `vault_gameapp_db_password`
+had never been reconciled into the vault. Treated the `.env` file as source of truth (its
+timestamp lined up with the last confirmed end-to-end proof of the whole pipeline) and used
+`ALTER USER` to bring MySQL's stored password in line with it.
+
+Applied a **quick manual fix** to unblock both hosts immediately (`sed` in `EnvironmentFile=`
+into the live unit, `daemon-reload`, restart) before doing the real fix — same triage-then-root-
+cause pattern as every other incident tonight.
+
+**The permanent fix:** added `templates/game-service.env.j2` to the `jvm_app` role (renders
+`DB_HOST`/`REDIS_HOST`/`RABBITMQ_HOST` from each group's `ansible_host` IP, not hostnames —
+deliberately, since hostname resolution is exactly what broke first tonight), a new task to
+template it to `/opt/game-service/game-service.env` (mode `0600`), and wired
+`EnvironmentFile=` into `game-service.service.j2`. `jvm_app` now needs the vault too —
+`vault_gameapp_db_password` and `vault_rabbitmq_password` joined `vault_redis_password` as
+things this role reads.
+
+**Then a real vault-editing detour.** Adding those two new secrets by hand in `vi` went wrong
+twice in a row, both caught only because of "verify against the live system, don't trust the
+file" discipline from a few nights ago:
+
+- First pass: `vault_redis_password` came out as `Reddis@1984` (double-D) and got flagged as a
+  likely typo against the `.env` file's `Redis@1984` (single-D) — but a direct `redis-cli -a
+  ... ping` test proved the *opposite*: double-D was correct, and the `.env` file itself was the
+  stale one. Good reminder that when two recorded values disagree, neither is automatically
+  right — test against the live system.
+- Second pass: `vault_mysql_root_password` came out reading the exact same value as
+  `vault_gameapp_db_password` — a copy/retype slip, not intentional. A first attempt to verify
+  which password was correct used an interactive masked prompt and produced a **wrong** answer
+  (concluded root's password was `GameApp2026Secure!`) — later disproven by a clean,
+  non-interactive test (`MYSQL_PWD='...' mysql ...`, run for both candidates back-to-back in one
+  shot) that conclusively showed the real value was `NewRootPassword2026!` all along. Masked,
+  manually-retyped passwords late at night are genuinely unreliable for verification — the
+  non-interactive method removed all ambiguity in one shot where several interactive attempts
+  hadn't.
+
+**The final twist.** After all of the above was genuinely fixed — vault correct, role template
+correct, `.env` file templated with the right values, confirmed byte-for-byte with `od -c` (no
+hidden characters) — `game-service` *still* crash-looped with the identical MySQL error. A
+direct `mysql` CLI login test from jvmapp01 itself, using the exact same credentials,
+**succeeded** — proving the credentials, the grants, and the network path were all fine. The
+actual cause: `controller01`'s local git checkout had never pulled the commit containing the
+`EnvironmentFile=` fix. `git status` reported "up to date with origin/main," which was true but
+misleading — it only reflects `git`'s last-known *local* record of the remote, not the actual
+current GitHub state, and nothing had run `git fetch`/`git pull` on `controller01` since before
+that fix was pushed. Every `--tags jvm_app` run after the very first one had been silently
+redeploying the *old* template, undoing the earlier manual `sed` patch each time. `git pull` on
+`controller01`, confirmed the template now had the fix, reran the tag — genuinely fixed this
+time, verified with repeated stable-PID checks (no restart) on both hosts over multiple
+intervals.
+
+## Takeaways (round five)
+
+- Three independent, real bugs stacked on top of each other, each one hiding the next until
+  fixed: a DNS assumption baked into the jar's defaults, a systemd wiring gap in the Ansible role
+  itself, and credentials that had quietly drifted out of sync with nobody keeping a record.
+  Peeling back one layer just revealed the next — worth expecting this shape of problem after any
+  long-idle system finally gets a fresh restart, not assuming the first fix found is the last one.
+- Non-interactive credential testing (`MYSQL_PWD='...' mysql ...`, run for multiple candidates in
+  one shot) is worth reaching for immediately once a masked interactive prompt has given a
+  confusing or contradictory result — it removes typo risk from the test itself, not just from
+  the thing being tested.
+- `git status`'s "up to date with origin/main" is only ever as fresh as the last `fetch` — it is
+  not a live check against GitHub. A machine that isn't the one actively committing (like
+  `controller01`, which only ever receives pushes from elsewhere) can go stale silently and keep
+  reporting "up to date" the entire time. Get in the habit of an explicit `git pull` before
+  trusting any Ansible run's result, especially after debugging something that "should already be
+  fixed."
+- An Ansible `changed=0` recap means "matches what I would deploy," not "is correct" — those are
+  only the same thing if the local playbook/role copy being compared against is actually current.
+  Combined with the stale-checkout issue above, this produced real false confidence more than
+  once tonight.
+- When two independently-recorded copies of the same secret disagree (a config file vs. a typed
+  memory, or a vault entry vs. either of those), don't assume either one is the source of truth by
+  default — the live system is the only real tiebreaker.
+
 ## Next up
 
-CI/CD is live and proven end-to-end — `game-service` now builds and lands a fresh jar
-automatically on every push (or manual trigger), closing the Session 3 gap for good. Remaining
-real work: Spring Boot Actuator/Micrometer on `game-service` (still not started — `pom.xml`
-already has `spring-boot-starter-actuator` but not `micrometer-registry-prometheus`), and
-Winlogbeat on `winsrv01` — **now actually unblocked**, since winsrv01 finally has a real
-recurring workload (the runner service itself, plus every build it runs) generating logs worth
-shipping. Deploying the freshly built jar to jvmapp01/jvmapp02 via
-`ansible-playbook site.yml --tags jvm_app --ask-vault-pass` is a pending manual step whenever
-convenient. Once Actuator + Winlogbeat land, Phase 4 is functionally complete and Phase 5 (the
-AI-driven RCA goal) becomes buildable for real.
+`game-service` is now fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading
+real reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable
+across multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just
+"the jar landed in the repo." Two small cleanup items left over from tonight's vault detour,
+neither urgent: `vault_mysql_root_password` still needs one more fix to read the actual real
+value (`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`,
+`ansible/{msg:`) showed up as untracked on `controller01` — harmless, just need deleting.
+Remaining real work: Spring Boot Actuator/Micrometer on `game-service` (still not started —
+`pom.xml` already has `spring-boot-starter-actuator` but not `micrometer-registry-prometheus`),
+and Winlogbeat on `winsrv01` (unblocked, not yet wired up). Once those two land, Phase 4 is
+functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
