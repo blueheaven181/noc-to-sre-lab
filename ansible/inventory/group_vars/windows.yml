@@ -1,5 +1,17 @@
 ---
-ansible_user: labadmin
+# Fixed 2026-08-20: this said "labadmin" from whenever this file was first
+# written, but no such account has ever existed on winsrv01 - `Get-LocalUser`
+# there shows only the built-in Administrator/DefaultAccount/Guest/
+# WDAGUtilityAccount. Every terminal session this whole project has actually
+# used `Administrator` (every prompt pasted back has read
+# `PS C:\Users\Administrator>`), so that's what this should have said all
+# along. Never actually surfaced as a bug until tonight, since this is the
+# first time a playbook run needed a fresh WinRM connection gated purely on
+# this stanza being correct - earlier Windows-tier runs may have been
+# authenticating some other way, or just got lucky/were never truly
+# verified end-to-end. Worth remembering: a var nobody's forced to prove
+# correct can sit wrong for a long time.
+ansible_user: Administrator
 ansible_password: "{{ vault_windows_admin_password }}"
 ansible_connection: winrm
 ansible_winrm_transport: ntlm
