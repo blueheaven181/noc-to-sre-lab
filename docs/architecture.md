@@ -135,16 +135,25 @@ as observability work):
 
 ### Dashboards — Grafana
 
-`dashboards/` (currently empty) becomes provisioned dashboard JSON, one per
-tier, checked into git rather than built by hand in the UI (reproducible, and
-survives `docker-compose down`):
+`dashboards/` becomes provisioned dashboard JSON, one per tier, checked into
+git rather than built by hand in the UI (reproducible, and survives
+`docker-compose down`):
 
-- Fleet overview: node_exporter + windows_exporter (CPU/mem/disk/network across all 8 hosts)
-- nginx: request rate, upstream response codes, active connections
-- game-service (JVM): request latency (p50/p95/p99), JVM heap/GC pauses, RabbitMQ publish rate
-- MySQL: connections, slow queries, replication lag (n/a today, future-proofed)
-- Redis: hit/miss ratio, memory, evictions
-- RabbitMQ: queue depth, consumer count, unacked messages
+- Fleet overview: node_exporter + windows_exporter (CPU/mem/disk/network across all 8 hosts) — not started
+- nginx: request rate, upstream response codes, active connections — not started
+- **game-service (JVM): done and confirmed live as of 2026-08-20** —
+  `dashboards/game-service.json`, 14 panels (Overview, HTTP Traffic, JVM, Data
+  Layer, Disk), filterable by a `$host` template variable. Request
+  latency is *average*, not p50/p95/p99 — `http_server_requests_seconds` is a
+  Prometheus summary, not a histogram, so no `_bucket` series exist yet to
+  compute real percentiles from. Adding
+  `management.metrics.distribution.percentiles-histogram.http.server.requests: true`
+  to `application.yml` would unlock that later. Verified by logging into
+  Grafana directly and confirming every panel renders real data, not just
+  that the file loaded.
+- MySQL: connections, slow queries, replication lag (n/a today, future-proofed) — not started
+- Redis: hit/miss ratio, memory, evictions — not started
+- RabbitMQ: queue depth, consumer count, unacked messages — not started
 
 ### Firewall / security (same discipline as Phases 1–3)
 
@@ -262,10 +271,12 @@ working end-to-end — that's the natural point to scope it for real.
 
 CI/CD is live (GitHub Actions on a self-hosted winsrv01 runner, builds
 `game-service` and commits the jar back automatically — see "winsrv01's
-workload" above), and Spring Boot Actuator/Micrometer is now live too —
-`game_service` shows `2/2 up` in Prometheus with real JVM/HTTP metrics
-flowing from both jvmapp01 and jvmapp02. Immediate remaining work: Grafana
-dashboards, and Winlogbeat on winsrv01 (now unblocked). After that: the
+workload" above), Spring Boot Actuator/Micrometer is live too — `game_service`
+shows `2/2 up` in Prometheus with real JVM/HTTP metrics flowing from both
+jvmapp01 and jvmapp02 — and the first Grafana dashboard (`game-service`, 14
+panels) is live and verified against real data. Immediate remaining work:
+Winlogbeat on winsrv01 (now unblocked), and dashboards for the other tiers
+(fleet overview, nginx, MySQL, Redis, RabbitMQ). After that: the
 chaos/postmortem phase (needs observability to actually be useful — can't
 write a postmortem about a failure you couldn't see), and then Phase 5 above
 once there's real data to build the AI/RCA layer against.

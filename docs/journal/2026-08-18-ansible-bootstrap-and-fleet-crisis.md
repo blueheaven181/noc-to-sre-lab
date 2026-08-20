@@ -513,16 +513,49 @@ targets page showed `game_service (2/2 up)` — both hosts scraping cleanly. Sma
 root — hit `ERROR! the playbook: site.yml could not be found` once from the wrong directory,
 easy fix.
 
+## First Grafana dashboard: game-service
+
+Same night, one more thing: built the first real Grafana dashboard (`dashboards/game-service.json`,
+14 panels across Overview / HTTP Traffic / JVM / Data Layer / Disk, filterable by a `$host`
+variable). Before writing a single panel query, pulled the actual live metric names straight from
+Prometheus (`/api/v1/query?query={job="game_service"}` against controller01's Prometheus) instead
+of guessing from Spring Boot docs — worth doing every time, since the exact suffixes Micrometer
+appends (`_active_count`, `_acquire_seconds_sum`, etc.) aren't always obvious from the metric name
+alone. Confirmed `http_server_requests_seconds` is a Prometheus *summary*, not a histogram (no
+`_bucket` series) — so the latency panel shows averages, not real percentiles; a true p95/p99 panel
+would need `management.metrics.distribution.percentiles-histogram.http.server.requests: true` added
+to `application.yml` later, noted but not done tonight.
+
+Hit one new problem getting it deployed: `git pull` on controller01 failed with
+`error: unable to create file dashboards/game-service.json: Permission denied` — the `dashboards/`
+folder was owned by `root`, not `ansible`, left over from Docker auto-creating that bind-mount
+directory the first time `docker-compose up` ran, before it had any git-tracked files inside it.
+Fixed with `sudo chown -R ansible:ansible dashboards/`. That partial pull attempt had already
+started writing the incoming `docs/` changes to the working tree before it aborted on the
+permission error, which made `git status` show them as uncommitted "local changes" on controller01
+— not real local edits, just a half-finished checkout. Discarded with
+`git checkout -- <files>` and re-pulled clean once permissions were fixed.
+
+Verified the dashboard for real, not just "the file exists": logged into Grafana directly (lab-only
+default admin/admin from `docker/.env`, not the app's own credentials) and confirmed every panel
+renders live data — both instances UP, real request-rate/latency numbers, JVM heap split
+differently between jvmapp01 (718 MiB max) and jvmapp02 (280 MiB max) — worth a look sometime why
+those differ, not urgent — GC pauses, HikariCP pool at 10 idle/0 active, RabbitMQ throughput flat
+at 0 (expected, no real game traffic yet). The one empty panel, HikariCP Connection Acquire Time,
+is correctly empty — no connection has needed to be acquired past the initial pool warm-up since
+the app hasn't served a real DB-touching request yet.
+
 ## Next up
 
 `game-service` is fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading real
 reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable across
 multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just "the jar
-landed in the repo." Spring Boot Actuator/Micrometer is also done and confirmed live — Prometheus
-shows `game_service (2/2 up)` with real JVM/HTTP metrics flowing. Two small cleanup items left
-over from the earlier vault detour, neither urgent: `vault_mysql_root_password` still needs one
-more fix to read the actual real value (`NewRootPassword2026!`), and two stray junk files
-(`ansible/{censored:`, `ansible/{msg:`) showed up as untracked on `controller01` — harmless, just
-need deleting. Remaining real work: Winlogbeat on `winsrv01` (unblocked, not yet wired up), then
-Grafana dashboards. Once those land, Phase 4 is functionally complete and Phase 5 (the AI-driven
-RCA goal) becomes buildable for real.
+landed in the repo." Spring Boot Actuator/Micrometer is done and confirmed live — Prometheus shows
+`game_service (2/2 up)` with real JVM/HTTP metrics flowing — and the first Grafana dashboard is
+live and verified against real data too. Two small cleanup items left over from the earlier vault
+detour, neither urgent: `vault_mysql_root_password` still needs one more fix to read the actual
+real value (`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`,
+`ansible/{msg:`) showed up as untracked on `controller01` — harmless, just need deleting.
+Remaining real work: Winlogbeat on `winsrv01` (unblocked, not yet wired up), and more dashboards
+for the other tiers (MySQL, Redis, RabbitMQ, nginx, Windows). Once Winlogbeat lands, Phase 4 is
+functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
