@@ -18,5 +18,15 @@ ansible_winrm_transport: ntlm
 ansible_winrm_server_cert_validation: ignore   # self-signed cert from bootstrap-winrm.ps1
 ansible_port: 5986
 
+# ansible.cfg sets [privilege_escalation] become = True globally, for every
+# host in the inventory - correct for the RHEL fleet (sudo), meaningless and
+# actively broken for WinRM/PowerShell, which has no concept of sudo at all.
+# Hit this for real running the winlogbeat role: "The powershell shell
+# family is incompatible with the sudo become plugin". Overriding it here,
+# scoped to the windows group only, rather than patching become: false onto
+# every individual play in site.yml that targets winsrv01 - this way it's
+# fixed for windows_common, winlogbeat, and any future Windows role too.
+ansible_become: false
+
 # Requires files/bootstrap-winrm.ps1 to have been run manually on the host first -
 # Ansible can't enable WinRM on a box it can't yet reach.
