@@ -29,9 +29,24 @@
     remote_src: true   # the zip is already on winsrv01 (downloaded above), not the controller
     creates: "{{ winlogbeat_install_dir }}\\winlogbeat.exe"
 
+# Fixed 2026-08-20: originally used ansible.windows.win_template here, same
+# as every other role uses ansible.builtin.template for its RHEL hosts - but
+# it deployed the .j2 file completely UN-rendered, literal Jinja syntax and
+# all ("{{ hostvars[...] }}" showed up verbatim in the live winlogbeat.yml,
+# which then crashed on startup: "missing port in address"). Root cause:
+# controller01's installed `ansible.windows` collection doesn't support its
+# ansible-core version (see the "Collection ansible.windows does not
+# support Ansible version 2.14.17" warning every play run prints) - the
+# other win_* modules in this role (win_get_url, win_unzip, win_service)
+# still work fine despite that same warning, so it's a narrow breakage
+# specific to win_template's Jinja codepath, not a blanket failure.
+# Sidesteps it entirely by forcing the Jinja rendering to happen on the
+# controller via the `template` lookup (the same reliable codepath
+# ansible.builtin.template already uses for every Linux role in this repo)
+# and just copying the already-rendered plain text over with win_copy.
 - name: Deploy winlogbeat.yml
-  ansible.windows.win_template:
-    src: winlogbeat.yml.j2
+  ansible.windows.win_copy:
+    content: "{{ lookup('ansible.builtin.template', 'winlogbeat.yml.j2') }}"
     dest: "{{ winlogbeat_install_dir }}\\winlogbeat.yml"
   notify: restart winlogbeat
 
