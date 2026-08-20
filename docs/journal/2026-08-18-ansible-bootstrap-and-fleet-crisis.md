@@ -502,16 +502,27 @@ from the previous addendum — never trust "up to date" without pulling), then
 deploy, then confirm the `game_service` target shows `UP` in Prometheus with real JVM/HTTP
 metrics flowing.
 
+**Confirmed end-to-end, same night:** pushed from the working PC (commit `d34247c`), CI build
+#2 went green on winsrv01 in 44s (jar grew from 61.2MB to 63.6MB — the new dependency baked in),
+pulled on controller01 (`8c5dc1e..0bb9256`, fast-forward, jar file size updated on disk), deployed
+with `ansible-playbook site.yml --tags jvm_app --ask-vault-pass --ask-become-pass` — `changed=2`
+on both jvmapp01 and jvmapp02, no failures. Verified two ways: `curl localhost:8080/actuator/prometheus`
+on jvmapp01 returned real metrics text (JVM heap, executor pools, disk, etc.), and the Prometheus
+targets page showed `game_service (2/2 up)` — both hosts scraping cleanly. Small process note:
+`ansible-playbook site.yml ...` has to run from inside the `ansible/` subfolder, not the repo
+root — hit `ERROR! the playbook: site.yml could not be found` once from the wrong directory,
+easy fix.
+
 ## Next up
 
 `game-service` is fully healthy on jvmapp01 and jvmapp02, running the CI-built jar, reading real
 reconciled credentials from a properly Ansible-managed `game-service.env`, confirmed stable across
 multiple checks. The CI/CD → deploy pipeline is proven end-to-end for real now, not just "the jar
-landed in the repo." Two small cleanup items left over from the earlier vault detour, neither
-urgent: `vault_mysql_root_password` still needs one more fix to read the actual real value
-(`NewRootPassword2026!`), and two stray junk files (`ansible/{censored:`, `ansible/{msg:`) showed
-up as untracked on `controller01` — harmless, just need deleting. Actuator/Micrometer app-code
-changes are done as of tonight (see addendum above) but **not yet built or deployed** — still need
-a fresh CI build and an `--tags jvm_app` run to actually land on jvmapp01/jvmapp02. Remaining real
-work after that: Winlogbeat on `winsrv01` (unblocked, not yet wired up). Once both of those land,
-Phase 4 is functionally complete and Phase 5 (the AI-driven RCA goal) becomes buildable for real.
+landed in the repo." Spring Boot Actuator/Micrometer is also done and confirmed live — Prometheus
+shows `game_service (2/2 up)` with real JVM/HTTP metrics flowing. Two small cleanup items left
+over from the earlier vault detour, neither urgent: `vault_mysql_root_password` still needs one
+more fix to read the actual real value (`NewRootPassword2026!`), and two stray junk files
+(`ansible/{censored:`, `ansible/{msg:`) showed up as untracked on `controller01` — harmless, just
+need deleting. Remaining real work: Winlogbeat on `winsrv01` (unblocked, not yet wired up), then
+Grafana dashboards. Once those land, Phase 4 is functionally complete and Phase 5 (the AI-driven
+RCA goal) becomes buildable for real.

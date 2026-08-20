@@ -174,8 +174,13 @@ waiting on the vault problem below.
 *real*, already-working Redis/MySQL credentials, not new/guessed ones) is the
 blocking prerequisite for the last two. Spring Boot Actuator/Micrometer for
 `game_service` is app-code work (new dependency + config in `app/`, needs a
-rebuild like Session 3's deploy), not an Ansible role — tracked separately,
-not started yet.
+rebuild like Session 3's deploy), not an Ansible role — **done and confirmed
+live as of 2026-08-20**: added `micrometer-registry-prometheus` to `pom.xml`
+and exposed `prometheus` in `application.yml`'s actuator config, rebuilt via
+the new CI pipeline, redeployed via `--tags jvm_app`. Prometheus's
+`game_service` scrape job (already defined, previously sitting `DOWN`) now
+shows `2/2 up` — both jvmapp01 and jvmapp02 confirmed scraping real JVM/HTTP
+metrics. See the 2026-08-20 journal addendum.
 
 ### winsrv01's workload — live as of 2026-08-20: CI/CD build agent
 
@@ -257,9 +262,10 @@ working end-to-end — that's the natural point to scope it for real.
 
 CI/CD is live (GitHub Actions on a self-hosted winsrv01 runner, builds
 `game-service` and commits the jar back automatically — see "winsrv01's
-workload" above). Immediate remaining work: Spring Boot Actuator/Micrometer
-on `game-service` (dependency not added yet), Grafana dashboards, and
-Winlogbeat on winsrv01 (now unblocked). After that: the chaos/postmortem
-phase (needs observability to actually be useful — can't write a postmortem
-about a failure you couldn't see), and then Phase 5 above once there's real
-data to build the AI/RCA layer against.
+workload" above), and Spring Boot Actuator/Micrometer is now live too —
+`game_service` shows `2/2 up` in Prometheus with real JVM/HTTP metrics
+flowing from both jvmapp01 and jvmapp02. Immediate remaining work: Grafana
+dashboards, and Winlogbeat on winsrv01 (now unblocked). After that: the
+chaos/postmortem phase (needs observability to actually be useful — can't
+write a postmortem about a failure you couldn't see), and then Phase 5 above
+once there's real data to build the AI/RCA layer against.
