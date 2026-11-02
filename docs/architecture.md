@@ -147,7 +147,16 @@ as observability work):
 git rather than built by hand in the UI (reproducible, and survives
 `docker-compose down`):
 
-- Fleet overview: node_exporter + windows_exporter (CPU/mem/disk/network across all 8 hosts) — not started
+- **Fleet overview (node_exporter): done and confirmed live as of
+  2026-11-02** — `dashboards/fleet-overview.json`, 12 panels (Overview,
+  CPU, Memory, Disk, Network) across all 7 Linux hosts (`controller01`,
+  `nginx01`, `mysql01`, `redis01`, `rabbitmq01`, `jvmapp01`, `jvmapp02`),
+  filterable by a `$host` template variable, same pattern as
+  `game-service.json`. `winsrv01`/`windows_exporter` intentionally not
+  included yet — its metric names weren't checked against a live target,
+  and guessing them would just produce panels that silently show no
+  data. Verified by logging into Grafana directly and confirming every
+  panel renders real data, not just that the file loaded.
 - nginx: request rate, upstream response codes, active connections — not started
 - **game-service (JVM): done and confirmed live as of 2026-08-20** —
   `dashboards/game-service.json`, 14 panels (Overview, HTTP Traffic, JVM, Data
