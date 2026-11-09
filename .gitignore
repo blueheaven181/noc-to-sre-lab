@@ -8,3 +8,9 @@ vault.yml
 .vscode/
 .env
 docker/.env
+
+# Scratch request-body/cookie files from manually running curl against the
+# Stage 1 test stack (see app/game-service/STAGE1-PROOF.md) - never meant
+# to be committed, just left over from typing commands by hand.
+app/game-service/*.json
+app/game-service/cookies.txt

@@ -48,6 +48,30 @@ spring:
     password: ${RABBITMQ_PASSWORD:changeme}
     virtual-host: ${RABBITMQ_VHOST:/game}
 
+  # Added for the casino-lab work (Stage 1): where the signup-verification
+  # email goes. "mailhog" is the local mail-catcher container name (both in
+  # docker-compose.test.yml and, once added, the real lab's compose stack) -
+  # it accepts mail on 1025 and shows it in a web UI instead of actually
+  # sending anything. No auth/TLS because it's a disposable local catcher,
+  # never a real mail server.
+  mail:
+    host: ${MAIL_HOST:mailhog}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+  # Added for the casino-lab work (Stage 1): matches the design doc's
+  # requirement that login sessions are tracked via a Redis-backed cookie,
+  # not kept in the app's own JVM memory. Needs the spring-session-data-redis
+  # dependency in pom.xml - once that's on the classpath, this one line is
+  # all it takes for HttpSession to be backed by Redis automatically.
+  session:
+    store-type: redis
+
 management:
   endpoints:
     web:

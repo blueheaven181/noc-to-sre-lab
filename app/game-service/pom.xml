@@ -71,6 +71,32 @@
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-mysql</artifactId>
     </dependency>
+    <!-- Added for the casino-lab work (Stage 1): accounts need password
+         hashing. This is the small spring-security-crypto library only -
+         just BCryptPasswordEncoder - not the full spring-boot-starter-security
+         starter, which would also add default login forms/filters that
+         would clash with the existing REST-only API style. -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+    </dependency>
+    <!-- Added for the casino-lab work (Stage 1): sends the email-verification
+         one-time code. Points at a local mail-catcher container in every
+         environment (docker-compose.test.yml, and the real lab's compose
+         stack) - no real email is ever sent. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+    <!-- Added for the casino-lab work (Stage 1): the design doc calls for
+         the login session to be tracked via a Redis-backed cookie. This
+         starter makes Spring's normal HttpSession transparently store its
+         data in Redis instead of in local JVM memory - the login code
+         doesn't have to know the difference. -->
+    <dependency>
+      <groupId>org.springframework.session</groupId>
+      <artifactId>spring-session-data-redis</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

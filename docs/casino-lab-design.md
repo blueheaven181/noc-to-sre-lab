@@ -22,6 +22,11 @@ worth practicing deliberately.
   verification on signup (no real email sent; a local mail-catcher
   container stands in for an outbound mail server), session tracked via a
   Redis-backed cookie.
+- **A public-facing website** - simple signup/login pages, and eventually
+  the games themselves, in a browser - a real customer-style, click-
+  through experience on top of the backend API, not something tested
+  only by typing commands. Built after each backend piece it depends on
+  has already been proven working on its own, not before.
 - **Wallet** - a play-money balance per customer, with every change
   recorded as a transaction rather than just an updated number, so the
   balance can always be checked against its own history.

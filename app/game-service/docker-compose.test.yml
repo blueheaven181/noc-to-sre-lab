@@ -43,6 +43,20 @@ services:
       timeout: 5s
       retries: 10
 
+  # Added for the casino-lab work (Stage 1): a fake mail server. It accepts
+  # mail on 1025 (same protocol a real mail server speaks, so the app's
+  # JavaMailSender code doesn't know the difference) and never sends
+  # anything anywhere real - instead it holds every message so it can be
+  # read back over its own web UI (8025) or, more usefully for this proof,
+  # its JSON API at http://localhost:8025/api/v2/messages. That's how
+  # STAGE1-PROOF.md pulls the verification code back out without a human
+  # having to click into a browser.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   game-service:
     build: .
     environment:
@@ -55,6 +69,8 @@ services:
       RABBITMQ_USER: guest
       RABBITMQ_PASSWORD: guest
       RABBITMQ_VHOST: "/"
+      MAIL_HOST: mailhog
+      MAIL_PORT: "1025"
       SERVER_PORT: "8080"
     ports:
       - "8080:8080"
