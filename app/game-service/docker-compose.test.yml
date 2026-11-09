@@ -1,0 +1,65 @@
+# Stage 0 proof harness for the casino-lab work: spins up game-service plus
+# real MySQL/Redis/RabbitMQ in containers, so the Flyway + ddl-auto:validate
+# change can be proven against a real database instead of taken on faith.
+#
+# Not the lab's real stack (that's docker/docker-compose.yml, which is only
+# observability, running on controller01) and not how game-service actually
+# gets deployed (that's still the jvm_app Ansible role). This file exists
+# only to answer one question: did switching from Hibernate-managed schema
+# to Flyway-managed schema change the leaderboard's behavior? See
+# STAGE0-PROOF.md in this folder for the exact steps and what to expect.
+#
+# Run from this directory: docker compose -f docker-compose.test.yml up --build
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: gamedb
+      MYSQL_USER: gameapp
+      MYSQL_PASSWORD: testpass
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  game-service:
+    build: .
+    environment:
+      DB_HOST: mysql
+      DB_USER: gameapp
+      DB_PASSWORD: testpass
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ""
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: "/"
+      SERVER_PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy

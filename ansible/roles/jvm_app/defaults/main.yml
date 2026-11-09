@@ -1,0 +1,13 @@
+---
+# Added for the casino-lab work (Stage 0): game-service has run with no
+# explicit heap limit since it was first deployed — the JVM just picked a
+# default based on whatever memory the host happened to report, which means
+# it was never actually tested against a known ceiling. Picking one now,
+# before adding more memory-hungry features (wallet, vendor services) on the
+# same boxes, so capacity planning has a real number to work from instead of
+# "whatever's free."
+#
+# 512m is deliberately conservative for this lab's VM sizing. Revisit once
+# the wallet/vendor stages add real load.
+jvm_heap_min: "256m"
+jvm_heap_max: "512m"

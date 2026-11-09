@@ -12,11 +12,28 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update   # lab convenience: auto-creates/updates the players table. Use migrations (Flyway/Liquibase) in real prod.
+      # Changed for the casino-lab work (Stage 0): was "update" (Hibernate
+      # auto-creates/alters tables). Flyway now owns the schema instead -
+      # Hibernate just checks the entity mapping matches what Flyway
+      # created and refuses to start if it doesn't, rather than silently
+      # changing anything.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+
+  flyway:
+    # baseline-on-migrate lets Flyway attach to a database that already has
+    # tables in it (the real lab's mysql01, built by ddl-auto before this
+    # change) without trying to re-run V1 against a table that already
+    # exists. baseline-version: 1 means "treat V1 as already applied there."
+    # A genuinely empty database (the Stage 0 Docker proof, any fresh
+    # environment) ignores baseline entirely and just runs V1 normally -
+    # baseline only matters when non-Flyway-managed tables already exist.
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "Pre-Flyway schema (Hibernate ddl-auto)"
 
   data:
     redis:

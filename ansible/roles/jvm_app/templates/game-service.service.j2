@@ -6,7 +6,7 @@ After=network.target
 User=gameapp
 Group=gameapp
 WorkingDirectory=/opt/game-service
-ExecStart=/usr/bin/java -jar /opt/game-service/game-service-current.jar --server.port=8080
+ExecStart=/usr/bin/java -Xms{{ jvm_heap_min }} -Xmx{{ jvm_heap_max }} -jar /opt/game-service/game-service-current.jar --server.port=8080
 Restart=on-failure
 RestartSec=5
 Environment=SPRING_PROFILES_ACTIVE=lab

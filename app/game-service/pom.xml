@@ -56,6 +56,21 @@
       <artifactId>mysql-connector-j</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- Added for the casino-lab work (Stage 0): application.yml's ddl-auto
+         comment has said "use migrations in real prod" since the day it was
+         written. This is that - Hibernate stops creating/altering tables on
+         its own, Flyway takes over the schema, versioned and checked into
+         git. V1 baselines the players table exactly as Hibernate had been
+         creating it, so this is a behavior-neutral change, not a schema
+         change - that's what Stage 0's Docker proof is checking. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-mysql</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
